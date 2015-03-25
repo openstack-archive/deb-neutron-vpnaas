@@ -1,4 +1,4 @@
-neutron-vpnaas (2015.1~b2+git20150319+cbb1769b64-1) UNRELEASED; urgency=medium
+neutron-vpnaas (2015.1~b3-1) UNRELEASED; urgency=medium
 
   * Initial release. (Closes: #XXXXXX)
 
