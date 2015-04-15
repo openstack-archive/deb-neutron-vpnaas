@@ -20,7 +20,7 @@ from neutron.agent.l3 import config as l3_config
 from neutron.agent.l3 import legacy_router
 from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
-from neutron.tests.functional.agent.linux import base
+from neutron.tests.functional import base
 from oslo_config import cfg
 
 from neutron_vpnaas.services.vpn.device_drivers import ipsec
@@ -82,7 +82,7 @@ DESIRED_CONN_STATUS = {FAKE_IPSEC_SITE_CONNECTION1_ID:
                         'updated_pending_status': False}}
 
 
-class TestStrongSwanDeviceDriver(base.BaseLinuxTestCase):
+class TestStrongSwanDeviceDriver(base.BaseSudoTestCase):
 
     """Test the StrongSwan reference implementation of the device driver."""
 
@@ -108,7 +108,7 @@ class TestStrongSwanDeviceDriver(base.BaseLinuxTestCase):
         looping_call_p.start()
 
         self.driver = strongswan_ipsec.StrongSwanDriver(
-            agent=mock.Mock(), host=mock.sentinel.host)
+            vpn_service=mock.Mock(), host=mock.sentinel.host)
         self.driver.routers[FAKE_ROUTER_ID] = self.router
         self.driver.agent_rpc = mock.Mock()
         self.driver._update_nat = mock.Mock()
