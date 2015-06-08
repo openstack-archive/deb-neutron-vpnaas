@@ -1,3 +1,9 @@
+neutron-vpnaas (2015.1.0-2) unstable; urgency=medium
+
+  * Added Breaks: + Replaces: neutron-common (<< 2015.1.0) (Closes: #787908).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 08 Jun 2015 17:48:11 +0200
+
 neutron-vpnaas (2015.1.0-1) unstable; urgency=medium
 
   * Initial release. (Closes: #783591)
