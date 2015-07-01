@@ -1,3 +1,9 @@
+neutron-vpnaas (2015.1.0-3) unstable; urgency=medium
+
+  * Allow running with SQLA 1.0.6.
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 01 Jul 2015 03:10:18 +0000
+
 neutron-vpnaas (2015.1.0-2) unstable; urgency=medium
 
   * Added Breaks: + Replaces: neutron-common (<< 2015.1.0) (Closes: #787908).
