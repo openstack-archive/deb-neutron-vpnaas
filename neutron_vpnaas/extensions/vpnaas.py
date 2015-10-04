@@ -91,6 +91,11 @@ class VPNPeerAddressNotResolved(nexception.InvalidInput):
     message = _("Peer address %(peer_address)s cannot be resolved")
 
 
+class ExternalNetworkHasNoSubnet(nexception.BadRequest):
+    message = _("Router's %(router_id)s external network has "
+                "no %(ip_version)s subnet")
+
+
 vpn_supported_initiators = ['bi-directional', 'response-only']
 vpn_supported_encryption_algorithms = ['3des', 'aes-128',
                                        'aes-192', 'aes-256']
@@ -137,6 +142,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                            'default': True,
                            'convert_to': attr.convert_to_boolean,
                            'is_visible': True},
+        'external_v4_ip': {'allow_post': False, 'allow_put': False,
+                        'is_visible': True},
+        'external_v6_ip': {'allow_post': False, 'allow_put': False,
+                        'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True}
     },

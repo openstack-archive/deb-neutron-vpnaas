@@ -17,9 +17,10 @@ import contextlib
 import os
 
 import mock
-
 from neutron.api import extensions as api_extensions
+from neutron.api.v2 import attributes
 from neutron.common import config
+from neutron.common import constants as l3_constants
 from neutron import context
 from neutron.db import agentschedulers_db
 from neutron.db import l3_agentschedulers_db
@@ -27,15 +28,16 @@ from neutron.db import servicetype_db as sdb
 from neutron import extensions as nextensions
 from neutron.extensions import l3 as l3_exception
 from neutron import manager
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.scheduler import l3_agent_scheduler
 from neutron.tests.unit.db import test_db_base_plugin_v2 as test_db_plugin
 from neutron.tests.unit.extensions import test_l3 as test_l3_plugin
-from oslo_config import cfg
+from oslo_utils import uuidutils
+import six
 import webob.exc
 
 from neutron_vpnaas.db.vpn import vpn_db
+from neutron_vpnaas.db.vpn import vpn_models
 from neutron_vpnaas.services.vpn import plugin as vpn_plugin
 from neutron_vpnaas.tests import base
 
@@ -62,7 +64,7 @@ class TestVpnCorePlugin(test_l3_plugin.TestL3NatIntPlugin,
 class VPNTestMixin(object):
     resource_prefix_map = dict(
         (k.replace('_', '-'),
-         constants.COMMON_PREFIXES[constants.VPN])
+         "/vpn")
         for k in vpnaas.RESOURCE_ATTRIBUTE_MAP
     )
 
@@ -225,12 +227,10 @@ class VPNTestMixin(object):
                    **kwargs):
         if not fmt:
             fmt = self.fmt
-        with contextlib.nested(
-            test_db_plugin.optional_ctx(subnet, self.subnet),
-            test_db_plugin.optional_ctx(router, self.router),
-            self.subnet(cidr=external_subnet_cidr)) as (tmp_subnet,
-                                                        tmp_router,
-                                                        public_sub):
+        with test_db_plugin.optional_ctx(subnet, self.subnet) as tmp_subnet, \
+                test_db_plugin.optional_ctx(router,
+                                            self.router) as tmp_router, \
+                self.subnet(cidr=external_subnet_cidr) as public_sub:
             if external_router:
                 self._set_net_external(
                     public_sub['subnet']['network_id'])
@@ -348,14 +348,12 @@ class VPNTestMixin(object):
                               **kwargs):
         if not fmt:
             fmt = self.fmt
-        with contextlib.nested(
-            test_db_plugin.optional_ctx(vpnservice,
-                                        self.vpnservice),
-            test_db_plugin.optional_ctx(ikepolicy,
-                                        self.ikepolicy),
-            test_db_plugin.optional_ctx(ipsecpolicy,
-                                        self.ipsecpolicy)
-        ) as (tmp_vpnservice, tmp_ikepolicy, tmp_ipsecpolicy):
+        with test_db_plugin.optional_ctx(vpnservice, self.vpnservice
+                                         ) as tmp_vpnservice, \
+                test_db_plugin.optional_ctx(ikepolicy, self.ikepolicy
+                                            ) as tmp_ikepolicy, \
+                test_db_plugin.optional_ctx(ipsecpolicy, self.ipsecpolicy
+                                            ) as tmp_ipsecpolicy:
             vpnservice_id = tmp_vpnservice['vpnservice']['id']
             ikepolicy_id = tmp_ikepolicy['ikepolicy']['id']
             ipsecpolicy_id = tmp_ipsecpolicy['ipsecpolicy']['id']
@@ -424,13 +422,21 @@ class VPNPluginDbTestCase(VPNTestMixin,
                 constants.VPN +
                 ':vpnaas:neutron_vpnaas.services.vpn.'
                 'service_drivers.ipsec.IPsecVPNDriver:default')
-
-        cfg.CONF.set_override('service_provider',
-                              [vpnaas_provider],
-                              'service_providers')
+        bits = vpnaas_provider.split(':')
+        vpnaas_provider = {
+            'service_type': bits[0],
+            'name': bits[1],
+            'driver': bits[2]
+        }
+        if len(bits) == 4:
+            vpnaas_provider['default'] = True
+        # override the default service provider
+        self.service_providers = (
+            mock.patch.object(sdb.ServiceTypeManager,
+                              'get_service_providers').start())
+        self.service_providers.return_value = [vpnaas_provider]
         # force service type manager to reload configuration:
         sdb.ServiceTypeManager._instance = None
-
         service_plugins = {'vpnaas_plugin': vpnaas_plugin}
         plugin_str = ('neutron_vpnaas.tests.unit.db.vpn.'
                       'test_vpn_db.TestVpnCorePlugin')
@@ -453,10 +459,20 @@ class VPNPluginDbTestCase(VPNTestMixin,
 
 class TestVpnaas(VPNPluginDbTestCase):
 
+    def setUp(self, **kwargs):
+        # TODO(armax): this is far from being a unit test case, as it tests
+        # that multiple parties (core + vpn) are integrated properly and
+        # should be replaced by API test that do not rely on so much mocking.
+        # NOTE(armax): make sure that the callbacks needed by this test are
+        # registered, as they may get wiped out depending by the order in
+        # which imports, subscriptions and mocks occur.
+        super(TestVpnaas, self).setUp(**kwargs)
+        vpn_db.subscribe()
+
     def _check_policy(self, policy, keys, lifetime):
         for k, v in keys:
             self.assertEqual(policy[k], v)
-        for k, v in lifetime.iteritems():
+        for k, v in six.iteritems(lifetime):
             self.assertEqual(policy['lifetime'][k], v)
 
     def test_create_ikepolicy(self):
@@ -526,15 +542,14 @@ class TestVpnaas(VPNPluginDbTestCase):
             self.assertEqual(len(res), 1)
             for k, v in keys:
                 self.assertEqual(res['ikepolicies'][0][k], v)
-            for k, v in lifetime.iteritems():
+            for k, v in six.iteritems(lifetime):
                 self.assertEqual(res['ikepolicies'][0]['lifetime'][k], v)
 
     def test_list_ikepolicies_with_sort_emulated(self):
         """Test case to list all ikepolicies."""
-        with contextlib.nested(self.ikepolicy(name='ikepolicy1'),
-                               self.ikepolicy(name='ikepolicy2'),
-                               self.ikepolicy(name='ikepolicy3')
-                               ) as (ikepolicy1, ikepolicy2, ikepolicy3):
+        with self.ikepolicy(name='ikepolicy1') as ikepolicy1, \
+                self.ikepolicy(name='ikepolicy2') as ikepolicy2, \
+                self.ikepolicy(name='ikepolicy3') as ikepolicy3:
             self._test_list_with_sort('ikepolicy', (ikepolicy3,
                                                     ikepolicy2,
                                                     ikepolicy1),
@@ -543,10 +558,9 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_list_ikepolicies_with_pagination_emulated(self):
         """Test case to list all ikepolicies with pagination."""
-        with contextlib.nested(self.ikepolicy(name='ikepolicy1'),
-                               self.ikepolicy(name='ikepolicy2'),
-                               self.ikepolicy(name='ikepolicy3')
-                               ) as (ikepolicy1, ikepolicy2, ikepolicy3):
+        with self.ikepolicy(name='ikepolicy1') as ikepolicy1, \
+                self.ikepolicy(name='ikepolicy2') as ikepolicy2, \
+                self.ikepolicy(name='ikepolicy3') as ikepolicy3:
             self._test_list_with_pagination('ikepolicy',
                                             (ikepolicy1,
                                              ikepolicy2,
@@ -556,10 +570,9 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_list_ikepolicies_with_pagination_reverse_emulated(self):
         """Test case to list all ikepolicies with reverse pagination."""
-        with contextlib.nested(self.ikepolicy(name='ikepolicy1'),
-                               self.ikepolicy(name='ikepolicy2'),
-                               self.ikepolicy(name='ikepolicy3')
-                               ) as (ikepolicy1, ikepolicy2, ikepolicy3):
+        with self.ikepolicy(name='ikepolicy1') as ikepolicy1, \
+                self.ikepolicy(name='ikepolicy2') as ikepolicy2, \
+                self.ikepolicy(name='ikepolicy3') as ikepolicy3:
             self._test_list_with_pagination_reverse('ikepolicy',
                                                     (ikepolicy1,
                                                      ikepolicy2,
@@ -719,10 +732,9 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_list_ipsecpolicies_with_sort_emulated(self):
         """Test case to list all ipsecpolicies."""
-        with contextlib.nested(self.ipsecpolicy(name='ipsecpolicy1'),
-                               self.ipsecpolicy(name='ipsecpolicy2'),
-                               self.ipsecpolicy(name='ipsecpolicy3')
-                               ) as(ipsecpolicy1, ipsecpolicy2, ipsecpolicy3):
+        with self.ipsecpolicy(name='ipsecpolicy1') as ipsecpolicy1, \
+                self.ipsecpolicy(name='ipsecpolicy2') as ipsecpolicy2, \
+                self.ipsecpolicy(name='ipsecpolicy3') as ipsecpolicy3:
             self._test_list_with_sort('ipsecpolicy', (ipsecpolicy3,
                                                       ipsecpolicy2,
                                                       ipsecpolicy1),
@@ -731,10 +743,9 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_list_ipsecpolicies_with_pagination_emulated(self):
         """Test case to list all ipsecpolicies with pagination."""
-        with contextlib.nested(self.ipsecpolicy(name='ipsecpolicy1'),
-                               self.ipsecpolicy(name='ipsecpolicy2'),
-                               self.ipsecpolicy(name='ipsecpolicy3')
-                               ) as(ipsecpolicy1, ipsecpolicy2, ipsecpolicy3):
+        with self.ipsecpolicy(name='ipsecpolicy1') as ipsecpolicy1, \
+                self.ipsecpolicy(name='ipsecpolicy2') as ipsecpolicy2, \
+                self.ipsecpolicy(name='ipsecpolicy3') as ipsecpolicy3:
             self._test_list_with_pagination('ipsecpolicy',
                                             (ipsecpolicy1,
                                              ipsecpolicy2,
@@ -744,10 +755,9 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_list_ipsecpolicies_with_pagination_reverse_emulated(self):
         """Test case to list all ipsecpolicies with reverse pagination."""
-        with contextlib.nested(self.ipsecpolicy(name='ipsecpolicy1'),
-                               self.ipsecpolicy(name='ipsecpolicy2'),
-                               self.ipsecpolicy(name='ipsecpolicy3')
-                               ) as(ipsecpolicy1, ipsecpolicy2, ipsecpolicy3):
+        with self.ipsecpolicy(name='ipsecpolicy1') as ipsecpolicy1, \
+                self.ipsecpolicy(name='ipsecpolicy2') as ipsecpolicy2, \
+                self.ipsecpolicy(name='ipsecpolicy3') as ipsecpolicy3:
             self._test_list_with_pagination_reverse('ipsecpolicy',
                                                     (ipsecpolicy1,
                                                      ipsecpolicy2,
@@ -926,9 +936,8 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to update a vpnservice."""
         name = 'new_vpnservice1'
         keys = [('name', name)]
-        with contextlib.nested(
-            self.subnet(cidr='10.2.0.0/24'),
-            self.router()) as (subnet, router):
+        with self.subnet(cidr='10.2.0.0/24') as subnet, \
+                self.router() as router:
             with self.vpnservice(name=name,
                                  subnet=subnet,
                                  router=router) as vpnservice:
@@ -937,7 +946,7 @@ class TestVpnaas(VPNPluginDbTestCase):
                 keys.append(('router_id',
                              vpnservice['vpnservice']['router_id']))
                 data = {'vpnservice': {'name': name}}
-                self._set_active(vpn_db.VPNService,
+                self._set_active(vpn_models.VPNService,
                                  vpnservice['vpnservice']['id'])
                 req = self.new_update_request(
                     'vpnservices',
@@ -952,9 +961,8 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to update a vpnservice in invalid state ."""
         name = 'new_vpnservice1'
         keys = [('name', name)]
-        with contextlib.nested(
-            self.subnet(cidr='10.2.0.0/24'),
-            self.router()) as (subnet, router):
+        with self.subnet(cidr='10.2.0.0/24') as subnet, \
+                self.router() as router:
             with self.vpnservice(name=name,
                                  subnet=subnet,
                                  router=router) as vpnservice:
@@ -1016,24 +1024,25 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to list all vpnservices with sorting."""
         with self.subnet() as subnet:
             with self.router() as router:
-                with contextlib.nested(
-                    self.vpnservice(name='vpnservice1',
-                                    subnet=subnet,
-                                    router=router,
-                                    external_subnet_cidr='192.168.10.0/24',),
-                    self.vpnservice(name='vpnservice2',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_router=False,
-                                    external_subnet_cidr='192.168.11.0/24',),
-                    self.vpnservice(name='vpnservice3',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_router=False,
-                                    external_subnet_cidr='192.168.13.0/24',)
-                ) as(vpnservice1, vpnservice2, vpnservice3):
+                with self.vpnservice(name='vpnservice1',
+                                     subnet=subnet,
+                                     router=router,
+                                     external_subnet_cidr='192.168.10.0/24'
+                                     ) as vpnservice1, \
+                        self.vpnservice(name='vpnservice2',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_router=False,
+                                        external_subnet_cidr='192.168.11.0/24'
+                                        ) as vpnservice2, \
+                        self.vpnservice(name='vpnservice3',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_router=False,
+                                        external_subnet_cidr='192.168.13.0/24'
+                                        ) as vpnservice3:
                     self._test_list_with_sort('vpnservice', (vpnservice3,
                                                              vpnservice2,
                                                              vpnservice1),
@@ -1043,24 +1052,25 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to list all vpnservices with pagination."""
         with self.subnet() as subnet:
             with self.router() as router:
-                with contextlib.nested(
-                    self.vpnservice(name='vpnservice1',
-                                    subnet=subnet,
-                                    router=router,
-                                    external_subnet_cidr='192.168.10.0/24'),
-                    self.vpnservice(name='vpnservice2',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_subnet_cidr='192.168.20.0/24',
-                                    external_router=False),
-                    self.vpnservice(name='vpnservice3',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_subnet_cidr='192.168.30.0/24',
-                                    external_router=False)
-                ) as(vpnservice1, vpnservice2, vpnservice3):
+                with self.vpnservice(name='vpnservice1',
+                                     subnet=subnet,
+                                     router=router,
+                                     external_subnet_cidr='192.168.10.0/24'
+                                     ) as vpnservice1, \
+                        self.vpnservice(name='vpnservice2',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_subnet_cidr='192.168.20.0/24',
+                                        external_router=False
+                                        ) as vpnservice2, \
+                        self.vpnservice(name='vpnservice3',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_subnet_cidr='192.168.30.0/24',
+                                        external_router=False
+                                        ) as vpnservice3:
                     self._test_list_with_pagination('vpnservice',
                                                     (vpnservice1,
                                                      vpnservice2,
@@ -1071,24 +1081,25 @@ class TestVpnaas(VPNPluginDbTestCase):
         """Test case to list all vpnservices with reverse pagination."""
         with self.subnet() as subnet:
             with self.router() as router:
-                with contextlib.nested(
-                    self.vpnservice(name='vpnservice1',
-                                    subnet=subnet,
-                                    router=router,
-                                    external_subnet_cidr='192.168.10.0/24'),
-                    self.vpnservice(name='vpnservice2',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_subnet_cidr='192.168.11.0/24',
-                                    external_router=False),
-                    self.vpnservice(name='vpnservice3',
-                                    subnet=subnet,
-                                    router=router,
-                                    plug_subnet=False,
-                                    external_subnet_cidr='192.168.12.0/24',
-                                    external_router=False)
-                ) as(vpnservice1, vpnservice2, vpnservice3):
+                with self.vpnservice(name='vpnservice1',
+                                     subnet=subnet,
+                                     router=router,
+                                     external_subnet_cidr='192.168.10.0/24'
+                                     ) as vpnservice1, \
+                        self.vpnservice(name='vpnservice2',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_subnet_cidr='192.168.11.0/24',
+                                        external_router=False
+                                        ) as vpnservice2, \
+                        self.vpnservice(name='vpnservice3',
+                                        subnet=subnet,
+                                        router=router,
+                                        plug_subnet=False,
+                                        external_subnet_cidr='192.168.12.0/24',
+                                        external_router=False
+                                        ) as vpnservice3:
                     self._test_list_with_pagination_reverse('vpnservice',
                                                             (vpnservice1,
                                                              vpnservice2,
@@ -1145,49 +1156,43 @@ class TestVpnaas(VPNPluginDbTestCase):
         dpd = {'action': 'hold',
                'interval': 40,
                'timeout': 120}
-        with contextlib.nested(
-            self.ikepolicy(name=params['ikename']),
-            self.ipsecpolicy(name=params['ipsecname']),
-            self.subnet(cidr=params['subnet_cidr'],
-                        ip_version=params['subnet_version']),
-            self.router()) as (
-                ikepolicy, ipsecpolicy, subnet, router):
-                with self.vpnservice(name=params['vpnsname'], subnet=subnet,
-                                     router=router) as vpnservice1:
-                    keys['ikepolicy_id'] = ikepolicy['ikepolicy']['id']
-                    keys['ipsecpolicy_id'] = (
-                        ipsecpolicy['ipsecpolicy']['id']
-                    )
-                    keys['vpnservice_id'] = (
-                        vpnservice1['vpnservice']['id']
-                    )
-                    try:
-                        with self.ipsec_site_connection(
-                                self.fmt,
-                                keys['name'],
-                                keys['peer_address'],
-                                keys['peer_id'],
-                                keys['peer_cidrs'],
-                                keys['mtu'],
-                                keys['psk'],
-                                keys['initiator'],
-                                dpd['action'],
-                                dpd['interval'],
-                                dpd['timeout'],
-                                vpnservice1,
-                                ikepolicy,
-                                ipsecpolicy,
-                                keys['admin_state_up'],
-                                description=keys['description']
-                        ) as ipsec_site_connection:
-                            if expected_status_int != 200:
-                                self.fail("Expected failure on create")
-                            self._check_ipsec_site_connection(
+        with self.ikepolicy(name=params['ikename']) as ikepolicy, \
+                self.ipsecpolicy(name=params['ipsecname']) as ipsecpolicy, \
+                self.subnet(cidr=params['subnet_cidr'],
+                            ip_version=params['subnet_version']) as subnet, \
+                self.router() as router:
+            with self.vpnservice(name=params['vpnsname'], subnet=subnet,
+                                 router=router) as vpnservice1:
+                keys['ikepolicy_id'] = ikepolicy['ikepolicy']['id']
+                keys['ipsecpolicy_id'] = ipsecpolicy['ipsecpolicy']['id']
+                keys['vpnservice_id'] = vpnservice1['vpnservice']['id']
+                try:
+                    with self.ipsec_site_connection(
+                            self.fmt,
+                            keys['name'],
+                            keys['peer_address'],
+                            keys['peer_id'],
+                            keys['peer_cidrs'],
+                            keys['mtu'],
+                            keys['psk'],
+                            keys['initiator'],
+                            dpd['action'],
+                            dpd['interval'],
+                            dpd['timeout'],
+                            vpnservice1,
+                            ikepolicy,
+                            ipsecpolicy,
+                            keys['admin_state_up'],
+                            description=keys['description']
+                    ) as ipsec_site_connection:
+                        if expected_status_int != 200:
+                            self.fail("Expected failure on create")
+                        self._check_ipsec_site_connection(
                                 ipsec_site_connection['ipsec_site_connection'],
                                 keys,
                                 dpd)
-                    except webob.exc.HTTPClientError as ce:
-                        self.assertEqual(ce.code, expected_status_int)
+                except webob.exc.HTTPClientError as ce:
+                    self.assertEqual(ce.code, expected_status_int)
         self._delete('subnets', subnet['subnet']['id'])
 
     def test_create_ipsec_site_connection(self, **extras):
@@ -1262,15 +1267,18 @@ class TestVpnaas(VPNPluginDbTestCase):
         if overrides is not None:
             keys.update(overrides)
 
-        with contextlib.nested(
-                self.ikepolicy(name=keys['ikename']),
-                self.ipsecpolicy(name=keys['ipsecname']),
+        with self.ikepolicy(name=keys['ikename']) as ikepolicy, \
+                self.ipsecpolicy(name=keys['ipsecname']) as ipsecpolicy, \
                 self.subnet(cidr=keys['subnet_cidr'],
-                            ip_version=keys['subnet_version']),
-                self.router()) as (
-                    ikepolicy, ipsecpolicy, subnet, router):
+                            ip_version=keys['subnet_version']) as subnet, \
+                self.router() as router:
             with self.vpnservice(name=keys['vpnsname'], subnet=subnet,
                                  router=router) as vpnservice1:
+                ext_gw = router['router']['external_gateway_info']
+                if ext_gw:
+                    self._create_subnet(self.fmt,
+                        net_id=ext_gw['network_id'],
+                        ip_version=6, cidr='2001:db8::/32')
                 keys['vpnservice_id'] = vpnservice1['vpnservice']['id']
                 keys['ikepolicy_id'] = ikepolicy['ikepolicy']['id']
                 keys['ipsecpolicy_id'] = ipsecpolicy['ipsecpolicy']['id']
@@ -1295,7 +1303,7 @@ class TestVpnaas(VPNPluginDbTestCase):
                     data = {'ipsec_site_connection': update}
                     if keys.get('make_active', None):
                         self._set_active(
-                            vpn_db.IPsecSiteConnection,
+                            vpn_models.IPsecSiteConnection,
                             (ipsec_site_connection['ipsec_site_connection']
                              ['id']))
                     req = self.new_update_request(
@@ -1336,12 +1344,10 @@ class TestVpnaas(VPNPluginDbTestCase):
         dpd = {'action': 'hold',
                'interval': 40,
                'timeout': 120}
-        with contextlib.nested(
-            self.ikepolicy(name=ikename),
-            self.ipsecpolicy(name=ipsecname),
-            self.subnet(),
-            self.router()) as (
-                ikepolicy, ipsecpolicy, subnet, router):
+        with self.ikepolicy(name=ikename) as ikepolicy, \
+                self.ipsecpolicy(name=ipsecname) as ipsecpolicy, \
+                self.subnet() as subnet, \
+                self.router() as router:
             with self.vpnservice(name=vpnsname, subnet=subnet,
                                  router=router) as vpnservice1:
                 keys['ikepolicy_id'] = ikepolicy['ikepolicy']['id']
@@ -1389,23 +1395,17 @@ class TestVpnaas(VPNPluginDbTestCase):
                 with self.vpnservice(subnet=subnet,
                                      router=router
                                      ) as vpnservice:
-                    with contextlib.nested(
-                        self.ipsec_site_connection(
-                            name='connection1', vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='connection2', vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='connection3', vpnservice=vpnservice
-                        )
-                    ) as(ipsec_site_connection1,
-                         ipsec_site_connection2,
-                         ipsec_site_connection3):
+                    with self.ipsec_site_connection(name='connection1',
+                                                    vpnservice=vpnservice
+                                                    ) as conn1, \
+                            self.ipsec_site_connection(name='connection2',
+                                                       vpnservice=vpnservice
+                                                       ) as conn2, \
+                            self.ipsec_site_connection(name='connection3',
+                                                       vpnservice=vpnservice
+                                                       ) as conn3:
                         self._test_list_with_sort('ipsec-site-connection',
-                                                  (ipsec_site_connection3,
-                                                   ipsec_site_connection2,
-                                                   ipsec_site_connection1),
+                                                  (conn3, conn2, conn1),
                                                   [('name', 'desc')])
 
     def test_list_ipsec_site_connections_with_pagination_emulated(self):
@@ -1415,27 +1415,18 @@ class TestVpnaas(VPNPluginDbTestCase):
                 with self.vpnservice(subnet=subnet,
                                      router=router
                                      ) as vpnservice:
-                    with contextlib.nested(
-                        self.ipsec_site_connection(
+                    with self.ipsec_site_connection(
                             name='ipsec_site_connection1',
-                            vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='ipsec_site_connection1',
-                            vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='ipsec_site_connection1',
-                            vpnservice=vpnservice
-                        )
-                    ) as(ipsec_site_connection1,
-                         ipsec_site_connection2,
-                         ipsec_site_connection3):
+                            vpnservice=vpnservice) as conn1, \
+                            self.ipsec_site_connection(
+                                name='ipsec_site_connection1',
+                                vpnservice=vpnservice) as conn2, \
+                            self.ipsec_site_connection(
+                                name='ipsec_site_connection1',
+                                vpnservice=vpnservice) as conn3:
                         self._test_list_with_pagination(
                             'ipsec-site-connection',
-                            (ipsec_site_connection1,
-                             ipsec_site_connection2,
-                             ipsec_site_connection3),
+                            (conn1, conn2, conn3),
                             ('name', 'asc'), 2, 2)
 
     def test_list_ipsec_site_conns_with_pagination_reverse_emulated(self):
@@ -1445,24 +1436,18 @@ class TestVpnaas(VPNPluginDbTestCase):
                 with self.vpnservice(subnet=subnet,
                                      router=router
                                      ) as vpnservice:
-                    with contextlib.nested(
-                        self.ipsec_site_connection(
-                            name='connection1', vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='connection2', vpnservice=vpnservice
-                        ),
-                        self.ipsec_site_connection(
-                            name='connection3', vpnservice=vpnservice
-                        )
-                    ) as(ipsec_site_connection1,
-                         ipsec_site_connection2,
-                         ipsec_site_connection3):
+                    with self.ipsec_site_connection(name='connection1',
+                                                    vpnservice=vpnservice
+                                                    ) as conn1, \
+                            self.ipsec_site_connection(name='connection2',
+                                                       vpnservice=vpnservice
+                                                       ) as conn2, \
+                            self.ipsec_site_connection(name='connection3',
+                                                       vpnservice=vpnservice
+                                                       ) as conn3:
                         self._test_list_with_pagination_reverse(
                             'ipsec-site-connection',
-                            (ipsec_site_connection1,
-                             ipsec_site_connection2,
-                             ipsec_site_connection3),
+                            (conn1, conn2, conn3),
                             ('name', 'asc'), 2, 2
                         )
 
@@ -1472,11 +1457,9 @@ class TestVpnaas(VPNPluginDbTestCase):
         ike_name = "ikepolicy1"
         ipsec_name = "ipsecpolicy1"
         name1 = "ipsec_site_connection1"
-        with contextlib.nested(
-            self.ikepolicy(name=ike_name),
-            self.ipsecpolicy(name=ipsec_name),
-            self.vpnservice(name=vpns_name)) as (
-                ikepolicy, ipsecpolicy, vpnservice):
+        with self.ikepolicy(name=ike_name) as ikepolicy, \
+                self.ipsecpolicy(name=ipsec_name) as ipsecpolicy, \
+                self.vpnservice(name=vpns_name) as vpnservice:
             vpnservice_id = vpnservice['vpnservice']['id']
             ikepolicy_id = ikepolicy['ikepolicy']['id']
             ipsecpolicy_id = ipsecpolicy['ipsecpolicy']['id']
@@ -1605,8 +1588,8 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_router_in_use_by_vpnaas(self):
         """Check that exception raised, if router in use by VPNaaS."""
-        with contextlib.nested(self.subnet(cidr='10.2.0.0/24'),
-                               self.router()) as (subnet, router):
+        with self.subnet(cidr='10.2.0.0/24') as subnet, \
+                self.router() as router:
             with self.vpnservice(subnet=subnet,
                                  router=router):
                 self.assertRaises(l3_exception.RouterInUse,
@@ -1616,8 +1599,8 @@ class TestVpnaas(VPNPluginDbTestCase):
 
     def test_subnet_in_use_by_vpnaas(self):
         """Check that exception raised, if subnet in use by VPNaaS."""
-        with contextlib.nested(self.subnet(cidr='10.2.0.0/24'),
-                               self.router()) as (subnet, router):
+        with self.subnet(cidr='10.2.0.0/24') as subnet, \
+                self.router() as router:
             with self.vpnservice(subnet=subnet,
                                  router=router):
                 self.assertRaises(vpnaas.SubnetInUseByVPNService,
@@ -1635,3 +1618,156 @@ class TestVpnaas(VPNPluginDbTestCase):
                 mock.ANY, mock.ANY, mock.ANY, **kwargs))
             vpn_plugin.check_router_in_use.assert_called_once_with(
                 mock.ANY, 'foo_id')
+
+
+# Note: Below are new database related tests that only exercise the database
+# instead of going through the client API. The intent here is to (eventually)
+# convert all the database tests to this method, for faster, more granular
+# tests.
+
+# TODO(pcm): Put helpers in another module for sharing
+class NeutronResourcesMixin(object):
+
+    def create_network(self, overrides=None):
+        """Create datatbase entry for network."""
+        network_info = {'network': {'name': 'my-net',
+                                    'tenant_id': self.tenant_id,
+                                    'admin_state_up': True,
+                                    'shared': False}}
+        if overrides:
+            network_info['network'].update(overrides)
+        return self.core_plugin.create_network(self.context, network_info)
+
+    def create_subnet(self, overrides=None):
+        """Create database entry for subnet."""
+        subnet_info = {'subnet': {'name': 'my-subnet',
+                                  'tenant_id': self.tenant_id,
+                                  'ip_version': 4,
+                                  'enable_dhcp': True,
+                                  'dns_nameservers': None,
+                                  'host_routes': None,
+                                  'allocation_pools': None}}
+        if overrides:
+            subnet_info['subnet'].update(overrides)
+        return self.core_plugin.create_subnet(self.context, subnet_info)
+
+    def create_router(self, overrides=None, gw=None):
+        """Create database entry for router with optional gateway."""
+        router_info = {
+            'router': {
+                'name': 'my-router',
+                'tenant_id': self.tenant_id,
+                'admin_state_up': True,
+            }
+        }
+        if overrides:
+            router_info['router'].update(overrides)
+        if gw:
+            gw_info = {
+                'external_gateway_info': {
+                    'network_id': gw['net_id'],
+                    'external_fixed_ips': [{'subnet_id': gw['subnet_id'],
+                                            'ip_address': gw['ip']}],
+                }
+            }
+            router_info['router'].update(gw_info)
+        return self.l3_plugin.create_router(self.context, router_info)
+
+    def create_router_port_for_subnet(self, router, subnet):
+        """Creates port on router for subnet specified."""
+        port = {'port': {
+            'tenant_id': self.tenant_id,
+            'network_id': subnet['network_id'],
+            'fixed_ips': [
+                {'ip_address': subnet['gateway_ip'],
+                 'subnet_id': subnet['id']}
+            ],
+            'mac_address': attributes.ATTR_NOT_SPECIFIED,
+            'admin_state_up': True,
+            'device_id': router['id'],
+            'device_owner': l3_constants.DEVICE_OWNER_ROUTER_INTF,
+            'name': ''
+        }}
+        return self.core_plugin.create_port(self.context, port)
+
+    def create_basic_topology(self):
+        """Setup networks, subnets, and a router for testing VPN."""
+
+        public_net = self.create_network(overrides={'name': 'public',
+                                                    'router:external': True})
+        private_net = self.create_network(overrides={'name': 'private'})
+        overrides = {'name': 'private-subnet',
+                     'cidr': '10.2.0.0/24',
+                     'gateway_ip': '10.2.0.1',
+                     'network_id': private_net['id']}
+        private_subnet = self.create_subnet(overrides=overrides)
+        overrides = {'name': 'public-subnet',
+                     'cidr': '192.168.100.0/24',
+                     'gateway_ip': '192.168.100.1',
+                     'allocation_pools': [{'start': '192.168.100.2',
+                                           'end': '192.168.100.254'}],
+                     'network_id': public_net['id']}
+        public_subnet = self.create_subnet(overrides=overrides)
+        gw_info = {'net_id': public_net['id'],
+                   'subnet_id': public_subnet['id'],
+                   'ip': '192.168.100.5'}
+        router = self.create_router(gw=gw_info)
+        self.create_router_port_for_subnet(router, private_subnet)
+        return (private_subnet, router)
+
+
+class TestVpnDatabase(base.NeutronDbPluginV2TestCase, NeutronResourcesMixin):
+
+    def setUp(self):
+        # Setup the core plugin
+        self.plugin_str = ('neutron_vpnaas.tests.unit.db.vpn.'
+                           'test_vpn_db.TestVpnCorePlugin')
+        super(TestVpnDatabase, self).setUp(self.plugin_str)
+        # Get the plugins
+        self.core_plugin = manager.NeutronManager.get_plugin()
+        self.l3_plugin = manager.NeutronManager.get_service_plugins().get(
+            constants.L3_ROUTER_NAT)
+        # Create VPN database instance
+        self.plugin = vpn_db.VPNPluginDb()
+        self.tenant_id = uuidutils.generate_uuid()
+        self.context = context.get_admin_context()
+
+    def prepare_service_info(self, private_subnet, router):
+        return {'vpnservice': {'name': 'my-service',
+                               'description': 'new service',
+                               'subnet_id': private_subnet['id'],
+                               'router_id': router['id'],
+                               'admin_state_up': True}}
+
+    def test_create_vpnservice(self):
+        private_subnet, router = self.create_basic_topology()
+        info = self.prepare_service_info(private_subnet, router)
+        expected = {'admin_state_up': True,
+                    'external_v4_ip': None,
+                    'external_v6_ip': None,
+                    'status': 'PENDING_CREATE'}
+        expected.update(info['vpnservice'])
+        new_service = self.plugin.create_vpnservice(self.context, info)
+        self.assertDictSupersetOf(expected, new_service)
+
+    def test_update_external_tunnel_ips(self):
+        """Verify that external tunnel IPs can be set."""
+        private_subnet, router = self.create_basic_topology()
+        info = self.prepare_service_info(private_subnet, router)
+        expected = {'admin_state_up': True,
+                    'external_v4_ip': None,
+                    'external_v6_ip': None,
+                    'status': 'PENDING_CREATE'}
+        expected.update(info['vpnservice'])
+        new_service = self.plugin.create_vpnservice(self.context, info)
+        self.assertDictSupersetOf(expected, new_service)
+
+        external_v4_ip = '192.168.100.5'
+        external_v6_ip = 'fd00:1000::4'
+        expected.update({'external_v4_ip': external_v4_ip,
+                         'external_v6_ip': external_v6_ip})
+        mod_service = self.plugin.set_external_tunnel_ips(self.context,
+                                                          new_service['id'],
+                                                          v4_ip=external_v4_ip,
+                                                          v6_ip=external_v6_ip)
+        self.assertDictSupersetOf(expected, mod_service)

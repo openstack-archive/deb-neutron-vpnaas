@@ -16,8 +16,8 @@
 import mock
 from neutron.agent.l3 import legacy_router
 from neutron.callbacks import registry
-from neutron.openstack.common import uuidutils
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
 from neutron_vpnaas.extensions import vpnaas
 from neutron_vpnaas.services.vpn import agent as vpn_agent
@@ -52,7 +52,7 @@ class VPNBaseTestCase(base.BaseTestCase):
         super(VPNBaseTestCase, self).setUp()
         self.conf = cfg.CONF
         self.conf.use_namespaces = True
-        self.ri_kwargs = {'router': {'id': FAKE_ROUTER_ID},
+        self.ri_kwargs = {'router': {'id': FAKE_ROUTER_ID, 'ha': False},
                           'agent_conf': self.conf,
                           'interface_driver': mock.sentinel.interface_driver}
 
@@ -63,6 +63,7 @@ class TestVirtualPrivateNetworkDeviceDriverLoading(VPNBaseTestCase):
         super(TestVirtualPrivateNetworkDeviceDriverLoading, self).setUp()
         cfg.CONF.register_opts(vpn_agent.vpn_agent_opts, 'vpnagent')
         self.agent = mock.Mock()
+        self.agent.conf = cfg.CONF
         mock.patch.object(registry, 'subscribe').start()
         self.service = vpn_service.VPNService(self.agent)
 

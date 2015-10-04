@@ -14,14 +14,13 @@
 
 from neutron.common import exceptions
 from neutron.db import model_base
-from neutron.db import models_v2
 from neutron.i18n import _LI
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy.orm import exc as sql_exc
 
-from neutron_vpnaas.db.vpn import vpn_db
+from neutron_vpnaas.db.vpn import vpn_models
 
 LOG = logging.getLogger(__name__)
 
@@ -45,13 +44,13 @@ class CsrInternalError(exceptions.NeutronException):
     message = _("Fatal - %(reason)s")
 
 
-class IdentifierMap(model_base.BASEV2, models_v2.HasTenant):
+class IdentifierMap(model_base.BASEV2):
 
     """Maps OpenStack IDs to compatible numbers for Cisco CSR."""
 
     __tablename__ = 'cisco_csr_identifier_map'
 
-    ipsec_site_conn_id = sa.Column(sa.String(64),
+    ipsec_site_conn_id = sa.Column(sa.String(36),
                                    sa.ForeignKey('ipsec_site_connections.id',
                                                  ondelete="CASCADE"),
                                    primary_key=True)
@@ -105,23 +104,23 @@ def get_next_available_ipsec_policy_id(session):
 
 def find_conn_with_policy(policy_field, policy_id, conn_id, session):
     """Return ID of another conneciton (if any) that uses same policy ID."""
-    qry = session.query(vpn_db.IPsecSiteConnection.id)
+    qry = session.query(vpn_models.IPsecSiteConnection.id)
     match = qry.filter_request(
         policy_field == policy_id,
-        vpn_db.IPsecSiteConnection.id != conn_id).first()
+        vpn_models.IPsecSiteConnection.id != conn_id).first()
     if match:
         return match[0]
 
 
 def find_connection_using_ike_policy(ike_policy_id, conn_id, session):
     """Return ID of another connection that uses same IKE policy ID."""
-    return find_conn_with_policy(vpn_db.IPsecSiteConnection.ikepolicy_id,
+    return find_conn_with_policy(vpn_models.IPsecSiteConnection.ikepolicy_id,
                                  ike_policy_id, conn_id, session)
 
 
 def find_connection_using_ipsec_policy(ipsec_policy_id, conn_id, session):
     """Return ID of another connection that uses same IPSec policy ID."""
-    return find_conn_with_policy(vpn_db.IPsecSiteConnection.ipsecpolicy_id,
+    return find_conn_with_policy(vpn_models.IPsecSiteConnection.ipsecpolicy_id,
                                  ipsec_policy_id, conn_id, session)
 
 
@@ -167,17 +166,18 @@ def determine_csr_policy_id(policy_type, conn_policy_field, map_policy_field,
 def determine_csr_ike_policy_id(ike_policy_id, conn_id, session):
     """Use existing, or reserve a new IKE policy ID for Cisco CSR."""
     return determine_csr_policy_id(IKE_POLICY,
-                                   vpn_db.IPsecSiteConnection.ikepolicy_id,
+                                   vpn_models.IPsecSiteConnection.ikepolicy_id,
                                    IdentifierMap.csr_ike_policy_id,
                                    ike_policy_id, conn_id, session)
 
 
 def determine_csr_ipsec_policy_id(ipsec_policy_id, conn_id, session):
     """Use existing, or reserve a new IPSec policy ID for Cisco CSR."""
-    return determine_csr_policy_id(IPSEC_POLICY,
-                                   vpn_db.IPsecSiteConnection.ipsecpolicy_id,
-                                   IdentifierMap.csr_ipsec_policy_id,
-                                   ipsec_policy_id, conn_id, session)
+    return determine_csr_policy_id(
+        IPSEC_POLICY,
+        vpn_models.IPsecSiteConnection.ipsecpolicy_id,
+        IdentifierMap.csr_ipsec_policy_id,
+        ipsec_policy_id, conn_id, session)
 
 
 def get_tunnel_mapping_for(conn_id, session):

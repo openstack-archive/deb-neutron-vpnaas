@@ -64,6 +64,9 @@ class StrongSwanProcess(ipsec.BaseSwanProcess):
     # CONNECTING means route created, connection tunnel is negotiating.
     # INSTALLED means route created,
     #           also connection tunnel installed. (traffic can pass)
+
+    DIALECT_MAP = dict(ipsec.BaseSwanProcess.DIALECT_MAP)
+
     STATUS_DICT = {
         'ROUTED': constants.DOWN,
         'CONNECTING': constants.DOWN,
@@ -116,7 +119,8 @@ class StrongSwanProcess(ipsec.BaseSwanProcess):
         self.ensure_config_file(
             'ipsec.secrets',
             cfg.CONF.strongswan.ipsec_secret_template,
-            self.vpnservice)
+            self.vpnservice,
+            0o600)
         self.copy_and_overwrite(cfg.CONF.strongswan.default_config_area,
                                 self._get_config_filename('strongswan.d'))
 
@@ -147,6 +151,9 @@ class StrongSwanProcess(ipsec.BaseSwanProcess):
         if not self.namespace:
             return
         self._execute([self.binary, 'start'])
+        # initiate ipsec connection
+        for ipsec_site_conn in self.vpnservice['ipsec_site_connections']:
+            self._execute([self.binary, 'up', ipsec_site_conn['id']])
 
     def stop(self):
         self._execute([self.binary, 'stop'])

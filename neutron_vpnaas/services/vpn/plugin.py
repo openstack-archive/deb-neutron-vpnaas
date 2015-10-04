@@ -14,14 +14,22 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron.db import servicetype_db as st_db
 from neutron.i18n import _LI
 from neutron.plugins.common import constants
+from neutron.services import provider_configuration as pconf
 from neutron.services import service_base
 from oslo_log import log as logging
 
 from neutron_vpnaas.db.vpn import vpn_db
 
 LOG = logging.getLogger(__name__)
+
+
+def add_provider_configuration(type_manager, service_type):
+    type_manager.add_provider_configuration(
+        service_type,
+        pconf.ProviderConfiguration('neutron_vpnaas'))
 
 
 class VPNPlugin(vpn_db.VPNPluginDb):
@@ -33,6 +41,7 @@ class VPNPlugin(vpn_db.VPNPluginDb):
     vpn_db.VPNPluginDb.
     """
     supported_extension_aliases = ["vpnaas", "service-type"]
+    path_prefix = "/vpn"
 
 
 class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
@@ -40,6 +49,8 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
     #TODO(nati) handle ikepolicy and ipsecpolicy update usecase
     def __init__(self):
         super(VPNDriverPlugin, self).__init__()
+        self.service_type_manager = st_db.ServiceTypeManager.get_instance()
+        add_provider_configuration(self.service_type_manager, constants.VPN)
         # Load the service driver from neutron.conf.
         drivers, default_provider = service_base.load_drivers(
             constants.VPN, self)
@@ -92,6 +103,13 @@ class VPNDriverPlugin(VPNPlugin, vpn_db.VPNPluginRpcDbMixin):
         driver.update_ipsec_site_connection(
             context, old_ipsec_site_connection, ipsec_site_connection)
         return ipsec_site_connection
+
+    def create_vpnservice(self, context, vpnservice):
+        vpnservice = super(
+            VPNDriverPlugin, self).create_vpnservice(context, vpnservice)
+        driver = self._get_driver_for_vpnservice(vpnservice)
+        driver.create_vpnservice(context, vpnservice)
+        return vpnservice
 
     def update_vpnservice(self, context, vpnservice_id, vpnservice):
         old_vpn_service = self.get_vpnservice(context, vpnservice_id)

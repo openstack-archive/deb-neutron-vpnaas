@@ -13,20 +13,21 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
-
 import mock
+import socket
+
 from neutron import context as n_ctx
 from neutron.db import l3_db
 from neutron.db import servicetype_db as st_db
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
-from neutron_vpnaas.db.vpn import vpn_validator
 from neutron_vpnaas.extensions import vpnaas
 from neutron_vpnaas.services.vpn import plugin as vpn_plugin
 from neutron_vpnaas.services.vpn.service_drivers import ipsec as ipsec_driver
+from neutron_vpnaas.services.vpn.service_drivers \
+    import ipsec_validator as vpn_validator
 from neutron_vpnaas.tests import base
 
 _uuid = uuidutils.generate_uuid
@@ -44,6 +45,7 @@ FAKE_ROUTER = {l3_db.EXTERNAL_GW_INFO: FAKE_ROUTER_ID}
 FAKE_SUBNET_ID = _uuid()
 IPV4 = 4
 IPV6 = 6
+FAKE_CONN_ID = _uuid()
 
 IPSEC_SERVICE_DRIVER = ('neutron_vpnaas.services.vpn.service_drivers.'
                         'ipsec.IPsecVPNDriver')
@@ -53,11 +55,25 @@ class TestValidatorSelection(base.BaseTestCase):
 
     def setUp(self):
         super(TestValidatorSelection, self).setUp()
-        vpnaas_provider = (constants.VPN + ':vpnaas:' +
-                           IPSEC_SERVICE_DRIVER + ':default')
-        cfg.CONF.set_override('service_provider',
-                              [vpnaas_provider],
-                              'service_providers')
+        # TODO(armax): remove this if branch as soon as the ServiceTypeManager
+        # API for adding provider configurations becomes available
+        if not hasattr(st_db.ServiceTypeManager, 'add_provider_configuration'):
+            vpnaas_provider = (constants.VPN + ':vpnaas:' +
+                               IPSEC_SERVICE_DRIVER + ':default')
+            cfg.CONF.set_override(
+                'service_provider', [vpnaas_provider], 'service_providers')
+        else:
+            vpnaas_provider = [{
+                'service_type': constants.VPN,
+                'name': 'vpnaas',
+                'driver': IPSEC_SERVICE_DRIVER,
+                'default': True
+            }]
+            # override the default service provider
+            self.service_providers = (
+                mock.patch.object(st_db.ServiceTypeManager,
+                                  'get_service_providers').start())
+            self.service_providers.return_value = vpnaas_provider
         mock.patch('neutron.common.rpc.create_connection').start()
         stm = st_db.ServiceTypeManager()
         mock.patch('neutron.db.servicetype_db.ServiceTypeManager.get_instance',
@@ -66,7 +82,7 @@ class TestValidatorSelection(base.BaseTestCase):
 
     def test_reference_driver_used(self):
         self.assertIsInstance(self.vpn_plugin._get_validator(),
-                              vpn_validator.VpnReferenceValidator)
+                              vpn_validator.IpsecVpnValidator)
 
 
 class TestIPsecDriverValidation(base.BaseTestCase):
@@ -81,7 +97,10 @@ class TestIPsecDriverValidation(base.BaseTestCase):
         mock.patch('neutron.manager.NeutronManager.get_plugin',
                    return_value=self.core_plugin).start()
         self.context = n_ctx.Context('some_user', 'some_tenant')
-        self.validator = vpn_validator.VpnReferenceValidator()
+        self.service_plugin = mock.Mock()
+        self.validator = vpn_validator.IpsecVpnValidator(self.service_plugin)
+        self.router = mock.Mock()
+        self.router.gw_port = {'fixed_ips': [{'ip_address': '10.0.0.99'}]}
 
     def test_non_public_router_for_vpn_service(self):
         """Failure test of service validate, when router missing ext. I/F."""
@@ -128,6 +147,78 @@ class TestIPsecDriverValidation(base.BaseTestCase):
             'dpd_interval': 50
         }
         self.assertEqual(expected, ipsec_sitecon)
+
+    def test_resolve_peer_address_with_ipaddress(self):
+        ipsec_sitecon = {'peer_address': '10.0.0.9'}
+        self.validator.validate_peer_address = mock.Mock()
+        self.validator.resolve_peer_address(ipsec_sitecon, self.router)
+        self.assertEqual('10.0.0.9', ipsec_sitecon['peer_address'])
+        self.validator.validate_peer_address.assert_called_once_with(
+            IPV4, self.router)
+
+    def test_resolve_peer_address_with_fqdn(self):
+        with mock.patch.object(socket, 'getaddrinfo') as mock_getaddr_info:
+            mock_getaddr_info.return_value = [(2, 1, 6, '',
+                                              ('10.0.0.9', 0))]
+            ipsec_sitecon = {'peer_address': 'fqdn.peer.addr'}
+            self.validator.validate_peer_address = mock.Mock()
+            self.validator.resolve_peer_address(ipsec_sitecon, self.router)
+            self.assertEqual('10.0.0.9', ipsec_sitecon['peer_address'])
+            self.validator.validate_peer_address.assert_called_once_with(
+                IPV4, self.router)
+
+    def test_resolve_peer_address_with_invalid_fqdn(self):
+        with mock.patch.object(socket, 'getaddrinfo') as mock_getaddr_info:
+            def getaddr_info_failer(*args, **kwargs):
+                raise socket.gaierror()
+            mock_getaddr_info.side_effect = getaddr_info_failer
+            ipsec_sitecon = {'peer_address': 'fqdn.invalid'}
+            self.assertRaises(vpnaas.VPNPeerAddressNotResolved,
+                              self.validator.resolve_peer_address,
+                              ipsec_sitecon, self.router)
+
+    def _validate_peer_address(self, fixed_ips, ip_version,
+                               expected_exception=False):
+        self.router.id = FAKE_ROUTER_ID
+        self.router.gw_port = {'fixed_ips': fixed_ips}
+        try:
+            self.validator.validate_peer_address(ip_version, self.router)
+            if expected_exception:
+                self.fail("No exception raised for invalid peer address")
+        except vpnaas.ExternalNetworkHasNoSubnet:
+            if not expected_exception:
+                self.fail("exception for valid peer address raised")
+
+    def test_validate_peer_address(self):
+        # validate ipv4 peer_address with ipv4 gateway
+        fixed_ips = [{'ip_address': '10.0.0.99'}]
+        self._validate_peer_address(fixed_ips, IPV4)
+
+        # validate ipv6 peer_address with ipv6 gateway
+        fixed_ips = [{'ip_address': '2001::1'}]
+        self._validate_peer_address(fixed_ips, IPV6)
+
+        # validate ipv6 peer_address with both ipv4 and ipv6 gateways
+        fixed_ips = [{'ip_address': '2001::1'}, {'ip_address': '10.0.0.99'}]
+        self._validate_peer_address(fixed_ips, IPV6)
+
+        # validate ipv4 peer_address with both ipv4 and ipv6 gateways
+        fixed_ips = [{'ip_address': '2001::1'}, {'ip_address': '10.0.0.99'}]
+        self._validate_peer_address(fixed_ips, IPV4)
+
+        # validate ipv4 peer_address with ipv6 gateway
+        fixed_ips = [{'ip_address': '2001::1'}]
+        self._validate_peer_address(fixed_ips, IPV4, expected_exception=True)
+
+        # validate ipv6 peer_address with ipv4 gateway
+        fixed_ips = [{'ip_address': '10.0.0.99'}]
+        self._validate_peer_address(fixed_ips, IPV6, expected_exception=True)
+
+    def test_validate_ipsec_policy(self):
+        ipsec_policy = {'transform_protocol': 'ah-esp'}
+        self.assertRaises(vpn_validator.IpsecValidationFailure,
+                          self.validator.validate_ipsec_policy,
+                          self.context, ipsec_policy)
 
     def test_defaults_for_ipsec_site_connections_on_update(self):
         """Check that defaults are used for any values not specified."""
@@ -204,7 +295,7 @@ class TestIPsecDriverValidation(base.BaseTestCase):
 
     def test_bad_mtu_for_ipsec_connection(self):
         """Failure test of invalid MTU values for IPSec conn create/update."""
-        ip_version_limits = vpn_validator.VpnReferenceValidator.IP_MIN_MTU
+        ip_version_limits = vpn_validator.IpsecVpnValidator.IP_MIN_MTU
         for version, limit in ip_version_limits.items():
             ipsec_sitecon = {'mtu': limit - 1,
                              'dpd_action': 'hold',
@@ -240,22 +331,20 @@ class TestIPsecDriver(base.BaseTestCase):
             'neutron.manager.NeutronManager.get_service_plugins')
         get_service_plugin = service_plugin_p.start()
         get_service_plugin.return_value = {constants.L3_ROUTER_NAT: plugin}
-        service_plugin = mock.Mock()
-        service_plugin.get_l3_agents_hosting_routers.return_value = [l3_agent]
+        self.svc_plugin = mock.Mock()
+        self.svc_plugin.get_l3_agents_hosting_routers.return_value = [l3_agent]
         self._fake_vpn_router_id = _uuid()
-        service_plugin._get_vpnservice.return_value = {
+        self.svc_plugin._get_vpnservice.return_value = {
             'router_id': self._fake_vpn_router_id
         }
-        self.driver = ipsec_driver.IPsecVPNDriver(service_plugin)
+        self.driver = ipsec_driver.IPsecVPNDriver(self.svc_plugin)
 
     def _test_update(self, func, args, additional_info=None):
         ctxt = n_ctx.Context('', 'somebody')
-        with contextlib.nested(
-            mock.patch.object(self.driver.agent_rpc.client, 'cast'),
-            mock.patch.object(self.driver.agent_rpc.client, 'prepare'),
-        ) as (
-            rpc_mock, prepare_mock
-        ):
+        with mock.patch.object(self.driver.agent_rpc.client, 'cast'
+                               ) as rpc_mock, \
+                mock.patch.object(self.driver.agent_rpc.client, 'prepare'
+                                  ) as prepare_mock:
             prepare_mock.return_value = self.driver.agent_rpc.client
             func(ctxt, *args)
 
@@ -297,18 +386,22 @@ class TestIPsecDriver(base.BaseTestCase):
 
         fake_ikepolicy = FakeSqlQueryObject(id='foo-ike', name='ike-name')
         fake_ipsecpolicy = FakeSqlQueryObject(id='foo-ipsec')
+        fake_peer_address = '10.0.0.2'
 
         fake_ipsec_conn = FakeSqlQueryObject(peer_id=peer_id,
+                                             peer_address=fake_peer_address,
                                              ikepolicy=fake_ikepolicy,
                                              ipsecpolicy=fake_ipsecpolicy,
                                              peer_cidrs=[])
-
-        fake_gw_port = {'fixed_ips': [{'ip_address': 'foo-external-ip'}]}
+        fake_external_ip = '10.0.0.99'
+        fake_gw_port = {'fixed_ips': [{'ip_address': fake_external_ip}]}
         fake_router = FakeSqlQueryObject(gw_port=fake_gw_port)
         fake_vpnservice = FakeSqlQueryObject(id='foo-vpn-id', name='foo-vpn',
                                              description='foo-vpn-service',
                                              admin_state_up=True,
                                              status='active',
+                                             external_v4_ip=fake_external_ip,
+                                             external_v6_ip=None,
                                              subnet_id='foo-subnet-id',
                                              router_id='foo-router-id')
         fake_vpnservice.subnet = fake_subnet
@@ -320,14 +413,18 @@ class TestIPsecDriver(base.BaseTestCase):
                                     'description': 'foo-vpn-service',
                                     'admin_state_up': True,
                                     'status': 'active',
+                                    'external_v4_ip': fake_external_ip,
+                                    'external_v6_ip': None,
                                     'subnet_id': 'foo-subnet-id',
                                     'router_id': 'foo-router-id',
                                     'subnet': {'id': 'foo-subnet-id',
                                                'name': 'foo-subnet',
                                                'network_id': 'foo-net-id'},
-                                    'external_ip': 'foo-external-ip',
+                                    'external_ip': fake_external_ip,
                                     'ipsec_site_connections': [
                                         {'peer_id': expected_peer_id,
+                                         'external_ip': fake_external_ip,
+                                         'peer_address': fake_peer_address,
                                          'ikepolicy': {'id': 'foo-ike',
                                                        'name': 'ike-name'},
                                          'ipsecpolicy': {'id': 'foo-ipsec'},
@@ -348,3 +445,66 @@ class TestIPsecDriver(base.BaseTestCase):
 
     def test_make_vpnservice_dict_peer_id_is_string(self):
         self._test_make_vpnservice_dict_helper('foo.peer.id', '@foo.peer.id')
+
+    def test_get_external_ip_based_on_ipv4_peer(self):
+        vpnservice = mock.Mock()
+        vpnservice.external_v4_ip = '10.0.0.99'
+        vpnservice.external_v6_ip = '2001::1'
+        ipsec_sitecon = {'id': FAKE_CONN_ID, 'peer_address': '10.0.0.9'}
+        ip_to_use = self.driver.get_external_ip_based_on_peer(vpnservice,
+                                                              ipsec_sitecon)
+        self.assertEqual('10.0.0.99', ip_to_use)
+
+    def test_get_external_ip_based_on_ipv6_peer(self):
+        vpnservice = mock.Mock()
+        vpnservice.external_v4_ip = '10.0.0.99'
+        vpnservice.external_v6_ip = '2001::1'
+        ipsec_sitecon = {'id': FAKE_CONN_ID, 'peer_address': '2001::5'}
+        ip_to_use = self.driver.get_external_ip_based_on_peer(vpnservice,
+                                                              ipsec_sitecon)
+        self.assertEqual('2001::1', ip_to_use)
+
+    def test_get_ipv4_gw_ip(self):
+        vpnservice = mock.Mock()
+        vpnservice.router.gw_port = {'fixed_ips':
+                                     [{'ip_address': '10.0.0.99'}]}
+        v4_ip, v6_ip = self.driver._get_gateway_ips(vpnservice.router)
+        self.assertEqual('10.0.0.99', v4_ip)
+        self.assertIsNone(v6_ip)
+
+    def test_get_ipv6_gw_ip(self):
+        vpnservice = mock.Mock()
+        vpnservice.router.gw_port = {'fixed_ips': [{'ip_address': '2001::1'}]}
+        v4_ip, v6_ip = self.driver._get_gateway_ips(vpnservice.router)
+        self.assertIsNone(v4_ip)
+        self.assertEqual('2001::1', v6_ip)
+
+    def test_get_both_gw_ips(self):
+        vpnservice = mock.Mock()
+        vpnservice.router.gw_port = {'fixed_ips': [{'ip_address': '10.0.0.99'},
+                                                   {'ip_address': '2001::1'}]}
+        v4_ip, v6_ip = self.driver._get_gateway_ips(vpnservice.router)
+        self.assertEqual('10.0.0.99', v4_ip)
+        self.assertEqual('2001::1', v6_ip)
+
+    def test_use_first_gw_ips_when_multiples(self):
+        vpnservice = mock.Mock()
+        vpnservice.router.gw_port = {'fixed_ips': [{'ip_address': '10.0.0.99'},
+                                                   {'ip_address': '20.0.0.99'},
+                                                   {'ip_address': '2001::1'},
+                                                   {'ip_address': 'fd00::4'}]}
+        v4_ip, v6_ip = self.driver._get_gateway_ips(vpnservice.router)
+        self.assertEqual('10.0.0.99', v4_ip)
+        self.assertEqual('2001::1', v6_ip)
+
+    def test_store_gw_ips_on_service_create(self):
+        vpnservice = mock.Mock()
+        self.svc_plugin._get_vpnservice.return_value = vpnservice
+        vpnservice.router.gw_port = {'fixed_ips': [{'ip_address': '10.0.0.99'},
+                                                   {'ip_address': '2001::1'}]}
+        ctxt = n_ctx.Context('', 'somebody')
+        vpnservice_dict = {'id': FAKE_SERVICE_ID,
+                           'router_id': FAKE_ROUTER_ID}
+        self.driver.create_vpnservice(ctxt, vpnservice_dict)
+        self.svc_plugin.set_external_tunnel_ips.assert_called_once_with(
+            ctxt, FAKE_SERVICE_ID, v4_ip='10.0.0.99', v6_ip='2001::1')

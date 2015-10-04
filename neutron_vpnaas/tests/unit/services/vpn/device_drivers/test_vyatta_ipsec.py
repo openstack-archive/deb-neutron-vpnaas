@@ -14,13 +14,12 @@
 #    under the License.
 #
 
-import contextlib
 import sys
 
 import mock
-
 from neutron.agent.l3 import legacy_router
-from neutron.openstack.common import uuidutils
+from oslo_utils import uuidutils
+
 from neutron_vpnaas.tests import base
 
 with mock.patch.dict(sys.modules, {
@@ -111,8 +110,7 @@ class TestVyattaDeviceDriver(base.BaseTestCase):
     def setUp(self):
         super(TestVyattaDeviceDriver, self).setUp()
 
-        mock.patch('neutron.openstack.common.loopingcall'
-                   '.DynamicLoopingCall').start()
+        mock.patch('oslo_service.loopingcall.DynamicLoopingCall').start()
         self.server_api = mock.patch(
             'neutron_vpnaas.services.vpn.device_drivers'
             '.vyatta_ipsec.NeutronServerAPI').start()
@@ -131,13 +129,11 @@ class TestVyattaDeviceDriver(base.BaseTestCase):
         parse_vrouter_config = mock.Mock()
         parse_vrouter_config.return_value = vrouter_svc_list
 
-        with contextlib.nested(
-            mock.patch.object(vrouter_config, 'parse_config'),
-            mock.patch.object(vyatta_vpn_config, 'parse_vrouter_config',
-                              parse_vrouter_config),
-            mock.patch.object(self.driver, 'get_router_resources',
-                              mock.MagicMock())
-        ):
+        with mock.patch.object(vrouter_config, 'parse_config'), \
+                mock.patch.object(vyatta_vpn_config, 'parse_vrouter_config',
+                                  parse_vrouter_config), \
+                mock.patch.object(self.driver, 'get_router_resources',
+                                  mock.MagicMock()):
             self.driver.create_router(router)
 
         svc_cache = self.driver._svc_cache
@@ -159,12 +155,10 @@ class TestVyattaDeviceDriver(base.BaseTestCase):
 
         svc_delete = mock.Mock()
 
-        with contextlib.nested(
-            mock.patch.object(self.driver, 'get_router_resources',
-                get_router_resources),
-            mock.patch.object(self.driver, '_svc_delete', svc_delete),
-            mock.patch.object(self.driver, '_svc_cache', svc_cache),
-        ):
+        with mock.patch.object(self.driver, 'get_router_resources',
+                               get_router_resources), \
+                mock.patch.object(self.driver, '_svc_delete', svc_delete), \
+                mock.patch.object(self.driver, '_svc_cache', svc_cache):
             self.driver.destroy_router(router_id)
 
         self.assertNotIn(vrouter_svc, svc_cache)
@@ -193,11 +187,9 @@ class TestVyattaDeviceDriver(base.BaseTestCase):
         svc_delete = mock.Mock()
         svc_add = mock.Mock()
 
-        with contextlib.nested(
-            mock.patch.object(self.driver, '_svc_diff', svc_diff),
-            mock.patch.object(self.driver, '_svc_delete', svc_delete),
-            mock.patch.object(self.driver, '_svc_add', svc_add),
-        ):
+        with mock.patch.object(self.driver, '_svc_diff', svc_diff), \
+                mock.patch.object(self.driver, '_svc_delete', svc_delete), \
+                mock.patch.object(self.driver, '_svc_add', svc_add):
             self.driver.sync(mock.Mock(), None)
 
         for svc in to_add:

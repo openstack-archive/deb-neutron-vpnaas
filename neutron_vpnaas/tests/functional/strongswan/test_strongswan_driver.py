@@ -18,10 +18,10 @@ import os
 
 from neutron.agent.l3 import config as l3_config
 from neutron.agent.l3 import legacy_router
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.functional import base
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
 from neutron_vpnaas.services.vpn.device_drivers import ipsec
 from neutron_vpnaas.services.vpn.device_drivers import strongswan_ipsec
@@ -55,6 +55,7 @@ FAKE_VPN_SERVICE = {
         {'peer_cidrs': ['20.0.0.0/24',
                         '30.0.0.0/24'],
          'id': FAKE_IPSEC_SITE_CONNECTION1_ID,
+         'external_ip': '50.0.0.4',
          'peer_address': '30.0.0.5',
          'peer_id': '30.0.0.5',
          'psk': 'password',
@@ -64,6 +65,7 @@ FAKE_VPN_SERVICE = {
          'status': constants.PENDING_CREATE},
         {'peer_cidrs': ['40.0.0.0/24',
                         '50.0.0.0/24'],
+         'external_ip': '50.0.0.4',
          'peer_address': '50.0.0.5',
          'peer_id': '50.0.0.5',
          'psk': 'password',
@@ -104,11 +106,13 @@ class TestStrongSwanDeviceDriver(base.BaseSudoTestCase):
         self.router_id = FAKE_VPN_SERVICE['router_id']
 
         looping_call_p = mock.patch(
-            'neutron.openstack.common.loopingcall.FixedIntervalLoopingCall')
+            'oslo_service.loopingcall.FixedIntervalLoopingCall')
         looping_call_p.start()
 
+        vpn_service = mock.Mock()
+        vpn_service.conf = self.conf
         self.driver = strongswan_ipsec.StrongSwanDriver(
-            vpn_service=mock.Mock(), host=mock.sentinel.host)
+            vpn_service, host=mock.sentinel.host)
         self.driver.routers[FAKE_ROUTER_ID] = self.router
         self.driver.agent_rpc = mock.Mock()
         self.driver._update_nat = mock.Mock()

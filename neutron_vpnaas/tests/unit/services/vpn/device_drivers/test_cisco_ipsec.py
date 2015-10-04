@@ -13,19 +13,24 @@
 #    under the License.
 
 import copy
-import httplib
 import operator
 
 import mock
 from neutron import context
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
+from oslo_utils import uuidutils
 
 from neutron_vpnaas.services.vpn.device_drivers import (
     cisco_csr_rest_client as csr_client)
 from neutron_vpnaas.services.vpn.device_drivers \
     import cisco_ipsec as ipsec_driver
 from neutron_vpnaas.tests import base
+import six
+
+if six.PY3:
+    from http import client as httplib
+else:
+    import httplib
 
 _uuid = uuidutils.generate_uuid
 FAKE_HOST = 'fake_host'
@@ -418,8 +423,7 @@ class TestCiscoCsrIPsecDeviceDriverSyncStatuses(base.BaseTestCase):
         super(TestCiscoCsrIPsecDeviceDriverSyncStatuses, self).setUp()
         for klass in ['neutron.common.rpc.create_connection',
                       'neutron.context.get_admin_context_without_session',
-                      'neutron.openstack.common.'
-                      'loopingcall.FixedIntervalLoopingCall']:
+                      'oslo_service.loopingcall.FixedIntervalLoopingCall']:
             mock.patch(klass).start()
         self.context = context.Context('some_user', 'some_tenant')
         self.agent = mock.Mock()

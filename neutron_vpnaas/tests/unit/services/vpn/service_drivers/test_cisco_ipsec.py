@@ -12,15 +12,15 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import contextlib
 import mock
+from six import moves
 
 from neutron import context as n_ctx
 from neutron.db import servicetype_db as st_db
-from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants
 from neutron.tests.unit import testlib_api
 from oslo_config import cfg
+from oslo_utils import uuidutils
 
 from neutron_vpnaas.services.vpn import plugin as vpn_plugin
 from neutron_vpnaas.services.vpn.service_drivers import cisco_csr_db as csr_db
@@ -58,14 +58,27 @@ class TestCiscoValidatorSelection(base.BaseTestCase):
 
     def setUp(self):
         super(TestCiscoValidatorSelection, self).setUp()
-        vpnaas_provider = (constants.VPN + ':vpnaas:' +
-                           CISCO_IPSEC_SERVICE_DRIVER + ':default')
-        cfg.CONF.set_override('service_provider',
-                              [vpnaas_provider],
-                              'service_providers')
-        stm = st_db.ServiceTypeManager()
-        mock.patch('neutron.db.servicetype_db.ServiceTypeManager.get_instance',
-                   return_value=stm).start()
+        # TODO(armax): remove this if branch as soon as the ServiceTypeManager
+        # API for adding provider configurations becomes available
+        if not hasattr(st_db.ServiceTypeManager, 'add_provider_configuration'):
+            vpnaas_provider = (constants.VPN +
+                               ':vpnaas:' +
+                               CISCO_IPSEC_SERVICE_DRIVER + ':default')
+            cfg.CONF.set_override(
+                'service_provider', [vpnaas_provider], 'service_providers')
+        else:
+            vpnaas_provider = [{
+                'service_type': constants.VPN,
+                'name': 'vpnaas',
+                'driver': CISCO_IPSEC_SERVICE_DRIVER,
+                'default': True
+            }]
+            # override the default service provider
+            self.service_providers = (
+                mock.patch.object(st_db.ServiceTypeManager,
+                                  'get_service_providers').start())
+            self.service_providers.return_value = vpnaas_provider
+        st_db.ServiceTypeManager._instance = None
         mock.patch('neutron.common.rpc.create_connection').start()
         self.vpn_plugin = vpn_plugin.VPNDriverPlugin()
 
@@ -261,17 +274,17 @@ class TestCiscoIPsecDriverMapping(base.BaseTestCase):
         """Make sure can get the last ID for each of the table types."""
         # Simulate query indicates table is full
         self.query_mock.return_value = [
-            (x, ) for x in xrange(csr_db.MAX_CSR_TUNNELS - 1)]
+            (x, ) for x in moves.range(csr_db.MAX_CSR_TUNNELS - 1)]
         next_id = csr_db.get_next_available_tunnel_id(self.session)
         self.assertEqual(csr_db.MAX_CSR_TUNNELS - 1, next_id)
 
         self.query_mock.return_value = [
-            (x, ) for x in xrange(1, csr_db.MAX_CSR_IKE_POLICIES)]
+            (x, ) for x in moves.range(1, csr_db.MAX_CSR_IKE_POLICIES)]
         next_id = csr_db.get_next_available_ike_policy_id(self.session)
         self.assertEqual(csr_db.MAX_CSR_IKE_POLICIES, next_id)
 
         self.query_mock.return_value = [
-            (x, ) for x in xrange(1, csr_db.MAX_CSR_IPSEC_POLICIES)]
+            (x, ) for x in moves.range(1, csr_db.MAX_CSR_IPSEC_POLICIES)]
         next_id = csr_db.get_next_available_ipsec_policy_id(self.session)
         self.assertEqual(csr_db.MAX_CSR_IPSEC_POLICIES, next_id)
 
@@ -290,17 +303,17 @@ class TestCiscoIPsecDriverMapping(base.BaseTestCase):
     def test_no_more_mapping_ids_available(self):
         """Failure test of trying to reserve ID, when none available."""
         self.query_mock.return_value = [
-            (x, ) for x in xrange(csr_db.MAX_CSR_TUNNELS)]
+            (x, ) for x in moves.range(csr_db.MAX_CSR_TUNNELS)]
         self.assertRaises(IndexError, csr_db.get_next_available_tunnel_id,
                           self.session)
 
         self.query_mock.return_value = [
-            (x, ) for x in xrange(1, csr_db.MAX_CSR_IKE_POLICIES + 1)]
+            (x, ) for x in moves.range(1, csr_db.MAX_CSR_IKE_POLICIES + 1)]
         self.assertRaises(IndexError, csr_db.get_next_available_ike_policy_id,
                           self.session)
 
         self.query_mock.return_value = [
-            (x, ) for x in xrange(1, csr_db.MAX_CSR_IPSEC_POLICIES + 1)]
+            (x, ) for x in moves.range(1, csr_db.MAX_CSR_IPSEC_POLICIES + 1)]
         self.assertRaises(IndexError,
                           csr_db.get_next_available_ipsec_policy_id,
                           self.session)
@@ -364,12 +377,10 @@ class TestCiscoIPsecDriver(testlib_api.SqlTestCase):
         self.context = n_ctx.Context('some_user', 'some_tenant')
 
     def _test_update(self, func, args, additional_info=None):
-        with contextlib.nested(
-            mock.patch.object(self.driver.agent_rpc.client, 'cast'),
-            mock.patch.object(self.driver.agent_rpc.client, 'prepare'),
-        ) as (
-            rpc_mock, prepare_mock
-        ):
+        with mock.patch.object(self.driver.agent_rpc.client,
+                               'cast') as rpc_mock, \
+                mock.patch.object(self.driver.agent_rpc.client,
+                                  'prepare') as prepare_mock:
             prepare_mock.return_value = self.driver.agent_rpc.client
             func(self.context, *args)
 

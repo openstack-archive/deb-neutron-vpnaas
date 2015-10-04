@@ -20,22 +20,22 @@ import shutil
 import six
 import socket
 
-
 import jinja2
 import netaddr
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import utils
 from neutron.api.v2 import attributes
 from neutron.common import rpc as n_rpc
+from neutron.common import utils as n_utils
 from neutron import context
 from neutron.i18n import _LE
-from neutron.openstack.common import loopingcall
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
+from oslo_service import loopingcall
 
 from neutron_vpnaas.extensions import vpnaas
 from neutron_vpnaas.services.vpn.common import topics
@@ -51,7 +51,12 @@ ipsec_opts = [
         help=_('Location to store ipsec server config files')),
     cfg.IntOpt('ipsec_status_check_interval',
                default=60,
-               help=_("Interval for checking ipsec status"))
+               help=_("Interval for checking ipsec status")),
+    cfg.BoolOpt('enable_detailed_logging',
+               default=False,
+               help=_("Enable detail logging for ipsec pluto process. "
+                      "If the flag set to True, the detailed logging will "
+                      "be written into config_base_dir/<pid>/logs.")),
 ]
 cfg.CONF.register_opts(ipsec_opts, 'ipsec')
 
@@ -139,8 +144,9 @@ class BaseSwanProcess(object):
         self.namespace = namespace
         self.connection_status = {}
         self.config_dir = os.path.join(
-            cfg.CONF.ipsec.config_base_dir, self.id)
+            self.conf.ipsec.config_base_dir, self.id)
         self.etc_dir = os.path.join(self.config_dir, 'etc')
+        self.log_dir = os.path.join(self.config_dir, 'logs')
         self.update_vpnservice(vpnservice)
         self.STATUS_PATTERN = re.compile(self.STATUS_RE)
         self.STATUS_NOT_RUNNING_PATTERN = re.compile(
@@ -170,11 +176,14 @@ class BaseSwanProcess(object):
     def ensure_configs(self):
         pass
 
-    def ensure_config_file(self, kind, template, vpnservice):
+    def ensure_config_file(self, kind, template, vpnservice, file_mode=None):
         """Update config file,  based on current settings for service."""
         config_str = self._gen_config_content(template, vpnservice)
         config_file_name = self._get_config_filename(kind)
-        utils.replace_file(config_file_name, config_str)
+        if file_mode is None:
+            utils.replace_file(config_file_name, config_str)
+        else:
+            utils.replace_file(config_file_name, config_str, file_mode)
 
     def remove_config(self):
         """Remove whole config file."""
@@ -184,22 +193,18 @@ class BaseSwanProcess(object):
         config_dir = self.etc_dir
         return os.path.join(config_dir, kind)
 
-    def _ensure_dir(self, dir_path):
-        if not os.path.isdir(dir_path):
-            os.makedirs(dir_path, 0o755)
-
     def ensure_config_dir(self, vpnservice):
         """Create config directory if it does not exist."""
-        self._ensure_dir(self.config_dir)
+        n_utils.ensure_dir(self.config_dir)
         for subdir in self.CONFIG_DIRS:
             dir_path = os.path.join(self.config_dir, subdir)
-            self._ensure_dir(dir_path)
+            n_utils.ensure_dir(dir_path)
 
     def _gen_config_content(self, template_file, vpnservice):
         template = _get_template(template_file)
         return template.render(
             {'vpnservice': vpnservice,
-             'state_path': cfg.CONF.state_path})
+             'state_path': self.conf.state_path})
 
     @abc.abstractmethod
     def get_status(self):
@@ -298,16 +303,17 @@ class BaseSwanProcess(object):
                                            self.STATUS_MAP[status])
 
     def _record_connection_status(self, connection_id, status,
-                                  updated_pending_status=False):
-        if not self.connection_status.get(connection_id):
+                                  force_status_update=False):
+        conn_info = self.connection_status.get(connection_id)
+        if not conn_info:
             self.connection_status[connection_id] = {
                 'status': status,
-                'updated_pending_status': updated_pending_status
+                'updated_pending_status': force_status_update
             }
         else:
-            self.connection_status[connection_id]['status'] = status
-            self.connection_status[connection_id]['updated_pending_status'] = (
-                updated_pending_status)
+            conn_info['status'] = status
+            if force_status_update:
+                conn_info['updated_pending_status'] = True
 
 
 class OpenSwanProcess(BaseSwanProcess):
@@ -348,7 +354,8 @@ class OpenSwanProcess(BaseSwanProcess):
         self.ensure_config_file(
             'ipsec.secrets',
             self.conf.openswan.ipsec_secret_template,
-            self.vpnservice)
+            self.vpnservice,
+            0o600)
 
     def get_status(self):
         return self._execute([self.binary,
@@ -380,7 +387,7 @@ class OpenSwanProcess(BaseSwanProcess):
             ip_addr = self._resolve_fqdn(address)
             if not ip_addr:
                 self._record_connection_status(connection_id, constants.ERROR,
-                                               updated_pending_status=True)
+                                               force_status_update=True)
                 raise vpnaas.VPNPeerAddressNotResolved(peer_address=address)
         else:
             ip_addr = address
@@ -414,16 +421,19 @@ class OpenSwanProcess(BaseSwanProcess):
             return
         virtual_private = self._virtual_privates()
         #start pluto IKE keying daemon
-        self._execute([self.binary,
-                       'pluto',
-                       '--ctlbase', self.pid_path,
-                       '--ipsecdir', self.etc_dir,
-                       '--use-netkey',
-                       '--uniqueids',
-                       '--nat_traversal',
-                       '--secretsfile', self.secrets_file,
-                       '--virtual_private', virtual_private
-                       ])
+        cmd = [self.binary,
+               'pluto',
+               '--ctlbase', self.pid_path,
+               '--ipsecdir', self.etc_dir,
+               '--use-netkey',
+               '--uniqueids',
+               '--nat_traversal',
+               '--secretsfile', self.secrets_file,
+               '--virtual_private', virtual_private]
+
+        if self.conf.ipsec.enable_detailed_logging:
+            cmd += ['--perpeerlogbase', self.log_dir]
+        self._execute(cmd)
         #add connections
         for ipsec_site_conn in self.vpnservice['ipsec_site_connections']:
             nexthop = self._get_nexthop(ipsec_site_conn['peer_address'],
@@ -632,6 +642,10 @@ class IPsecDriver(device_drivers.DeviceDriver):
         :param func: self.add_nat_rule or self.remove_nat_rule
         """
         local_cidr = vpnservice['subnet']['cidr']
+        # This ipsec rule is not needed for ipv6.
+        if netaddr.IPNetwork(local_cidr).version == 6:
+            return
+
         router_id = vpnservice['router_id']
         for ipsec_site_connection in vpnservice['ipsec_site_connections']:
             for peer_cidr in ipsec_site_connection['peer_cidrs']:
@@ -689,6 +703,9 @@ class IPsecDriver(device_drivers.DeviceDriver):
             # before router's namespace
             process = self.processes[process_id]
             self._update_nat(process.vpnservice, self.add_nat_rule)
+            # Don't run ipsec process for backup HA router
+            if router.router['ha'] and router.ha_state == 'backup':
+                return
             process.enable()
 
     def destroy_process(self, process_id):
@@ -819,7 +836,15 @@ class IPsecDriver(device_drivers.DeviceDriver):
                 process = self.ensure_process(vpnservice['router_id'],
                                               vpnservice=vpnservice)
                 self._update_nat(vpnservice, self.add_nat_rule)
-                process.update()
+                router = self.routers.get(vpnservice['router_id'])
+                if not router:
+                    continue
+                # For HA router, spawn vpn process on master router
+                # and terminate vpn process on backup router
+                if router.router['ha'] and router.ha_state == 'backup':
+                    process.disable()
+                else:
+                    process.update()
 
     def _delete_vpn_processes(self, sync_router_ids, vpn_router_ids):
         # Delete any IPSec processes that are
