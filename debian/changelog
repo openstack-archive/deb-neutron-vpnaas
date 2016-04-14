@@ -9,6 +9,7 @@ neutron-vpnaas (1:8.0.0-1) unstable; urgency=medium
   * Fixed (build-)depends for this release.
   * Now using oslo-config-generator to build config files.
   * Standards-Version: 3.9.7 (no change).
+  * Fixed debian/copyright ordering.
 
  -- Thomas Goirand <zigo@debian.org>  Thu, 14 Apr 2016 13:04:13 +0200
 
