@@ -17,13 +17,13 @@ import os
 import shutil
 
 from oslo_config import cfg
-from oslo_log import log as logging
 
 from neutron.agent.linux import ip_lib
 from neutron.plugins.common import constants
+
+from neutron_vpnaas._i18n import _
 from neutron_vpnaas.services.vpn.device_drivers import ipsec
 
-LOG = logging.getLogger(__name__)
 TEMPLATE_PATH = os.path.dirname(os.path.abspath(__file__))
 
 strongswan_opts = [
@@ -80,6 +80,20 @@ class StrongSwanProcess(ipsec.BaseSwanProcess):
         self.DIALECT_MAP['v2'] = 'ikev2'
         super(StrongSwanProcess, self).__init__(conf, process_id,
                                                 vpnservice, namespace)
+
+    def _check_status_line(self, line):
+        """Parse a line and search for status information.
+
+        If a given line contains status information for a connection,
+        extract the status and mark the connection as ACTIVE or DOWN
+        according to the STATUS_MAP.
+        """
+        m = self.STATUS_PATTERN.search(line)
+        if m:
+            connection_id = m.group(1)
+            status = self.STATUS_MAP[m.group(2)]
+            return connection_id, status
+        return None, None
 
     def _execute(self, cmd, check_exit_code=True, extra_ok_codes=None):
         """Execute command on namespace.

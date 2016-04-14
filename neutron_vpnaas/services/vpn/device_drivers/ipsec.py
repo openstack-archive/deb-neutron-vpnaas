@@ -20,15 +20,14 @@ import shutil
 import six
 import socket
 
+import eventlet
 import jinja2
 import netaddr
 from neutron.agent.linux import ip_lib
-from neutron.agent.linux import utils
 from neutron.api.v2 import attributes
 from neutron.common import rpc as n_rpc
 from neutron.common import utils as n_utils
 from neutron import context
-from neutron.i18n import _LE
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
 from oslo_concurrency import lockutils
@@ -37,6 +36,7 @@ from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import loopingcall
 
+from neutron_vpnaas._i18n import _, _LE, _LI, _LW
 from neutron_vpnaas.extensions import vpnaas
 from neutron_vpnaas.services.vpn.common import topics
 from neutron_vpnaas.services.vpn import device_drivers
@@ -53,10 +53,12 @@ ipsec_opts = [
                default=60,
                help=_("Interval for checking ipsec status")),
     cfg.BoolOpt('enable_detailed_logging',
-               default=False,
-               help=_("Enable detail logging for ipsec pluto process. "
-                      "If the flag set to True, the detailed logging will "
-                      "be written into config_base_dir/<pid>/logs.")),
+                default=False,
+                help=_("Enable detail logging for ipsec pluto process. "
+                       "If the flag set to True, the detailed logging will "
+                       "be written into config_base_dir/<pid>/log. "
+                       "Note: This setting applies to OpenSwan and LibreSwan "
+                       "only. StrongSwan logs to syslog.")),
 ]
 cfg.CONF.register_opts(ipsec_opts, 'ipsec')
 
@@ -77,6 +79,26 @@ openswan_opts = [
 
 cfg.CONF.register_opts(openswan_opts, 'openswan')
 
+pluto_opts = [
+    cfg.IntOpt('shutdown_check_timeout',
+               default=1,
+               help=_('Initial interval in seconds for checking if pluto '
+                      'daemon is shutdown'),
+               deprecated_group='libreswan'),
+    cfg.IntOpt('shutdown_check_retries',
+               default=5,
+               help=_('The maximum number of retries for checking for '
+                      'pluto daemon shutdown'),
+               deprecated_group='libreswan'),
+    cfg.FloatOpt('shutdown_check_back_off',
+                 default=1.5,
+                 help=_('A factor to increase the retry interval for '
+                        'each retry'),
+                 deprecated_group='libreswan')
+]
+
+cfg.CONF.register_opts(pluto_opts, 'pluto')
+
 JINJA_ENV = None
 
 IPSEC_CONNS = 'ipsec_site_connections'
@@ -86,7 +108,7 @@ def _get_template(template_file):
     global JINJA_ENV
     if not JINJA_ENV:
         templateLoader = jinja2.FileSystemLoader(searchpath="/")
-        JINJA_ENV = jinja2.Environment(loader=templateLoader)
+        JINJA_ENV = jinja2.Environment(loader=templateLoader, autoescape=True)
     return JINJA_ENV.get_template(template_file)
 
 
@@ -136,6 +158,8 @@ class BaseSwanProcess(object):
     }
     STATUS_RE = '\d\d\d "([a-f0-9\-]+).* (unrouted|erouted);'
     STATUS_NOT_RUNNING_RE = 'Command:.*ipsec.*status.*Exit code: [1|3]$'
+    STATUS_IPSEC_SA_ESTABLISHED_RE = (
+        '\d{3} #\d+: "([a-f0-9\-]+).*IPsec SA established.*')
 
     def __init__(self, conf, process_id, vpnservice, namespace):
         self.conf = conf
@@ -146,11 +170,13 @@ class BaseSwanProcess(object):
         self.config_dir = os.path.join(
             self.conf.ipsec.config_base_dir, self.id)
         self.etc_dir = os.path.join(self.config_dir, 'etc')
-        self.log_dir = os.path.join(self.config_dir, 'logs')
+        self.log_dir = os.path.join(self.config_dir, 'log')
         self.update_vpnservice(vpnservice)
         self.STATUS_PATTERN = re.compile(self.STATUS_RE)
         self.STATUS_NOT_RUNNING_PATTERN = re.compile(
             self.STATUS_NOT_RUNNING_RE)
+        self.STATUS_IPSEC_SA_ESTABLISHED_PATTERN = re.compile(
+            self.STATUS_IPSEC_SA_ESTABLISHED_RE)
         self.STATUS_MAP = self.STATUS_DICT
 
     def translate_dialect(self):
@@ -181,9 +207,9 @@ class BaseSwanProcess(object):
         config_str = self._gen_config_content(template, vpnservice)
         config_file_name = self._get_config_filename(kind)
         if file_mode is None:
-            utils.replace_file(config_file_name, config_str)
+            n_utils.replace_file(config_file_name, config_str)
         else:
-            utils.replace_file(config_file_name, config_str, file_mode)
+            n_utils.replace_file(config_file_name, config_str, file_mode)
 
     def remove_config(self):
         """Remove whole config file."""
@@ -232,7 +258,14 @@ class BaseSwanProcess(object):
 
     def update(self):
         """Update Status based on vpnservice configuration."""
-        if self.vpnservice and not self.vpnservice['admin_state_up']:
+
+        # Disable the process if a vpnservice is disabled or it has no
+        # enabled IPSec site connections.
+        vpnservice_has_active_ipsec_site_conns = any(
+            [ipsec_site_conn['admin_state_up']
+             for ipsec_site_conn in self.vpnservice['ipsec_site_connections']])
+        if (not self.vpnservice['admin_state_up'] or
+                not vpnservice_has_active_ipsec_site_conns):
             self.disable()
         else:
             self.enable()
@@ -286,21 +319,42 @@ class BaseSwanProcess(object):
     def stop(self):
         """Stop process."""
 
+    def _check_status_line(self, line):
+        """Parse a line and search for status information.
+
+        If a connection has an established Security Association,
+        it will be considered ACTIVE. Otherwise, even if a status
+        line shows that a connection is active, it will be marked
+        as DOWN-ed.
+        """
+
+        # pluto is not running so just exit
+        if self.STATUS_NOT_RUNNING_PATTERN.search(line):
+            self.connection_status = {}
+            raise StopIteration()
+
+        m = self.STATUS_IPSEC_SA_ESTABLISHED_PATTERN.search(line)
+        if m:
+            connection_id = m.group(1)
+            return connection_id, constants.ACTIVE
+        else:
+            m = self.STATUS_PATTERN.search(line)
+            if m:
+                connection_id = m.group(1)
+                return connection_id, constants.DOWN
+        return None, None
+
     def _extract_and_record_connection_status(self, status_output):
         if not status_output:
             self.connection_status = {}
             return
         for line in status_output.split('\n'):
-            if self.STATUS_NOT_RUNNING_PATTERN.search(line):
-                self.connection_status = {}
+            try:
+                conn_id, conn_status = self._check_status_line(line)
+            except StopIteration:
                 break
-            m = self.STATUS_PATTERN.search(line)
-            if not m:
-                continue
-            connection_id = m.group(1)
-            status = m.group(2)
-            self._record_connection_status(connection_id,
-                                           self.STATUS_MAP[status])
+            if conn_id:
+                self._record_connection_status(conn_id, conn_status)
 
     def _record_connection_status(self, connection_id, status,
                                   force_status_update=False):
@@ -333,6 +387,7 @@ class OpenSwanProcess(BaseSwanProcess):
             self.etc_dir, 'ipsec.conf')
         self.pid_path = os.path.join(
             self.config_dir, 'var', 'run', 'pluto')
+        self.pid_file = '%s.pid' % self.pid_path
 
     def _execute(self, cmd, check_exit_code=True, extra_ok_codes=None):
         """Execute command on namespace."""
@@ -357,6 +412,61 @@ class OpenSwanProcess(BaseSwanProcess):
             self.vpnservice,
             0o600)
 
+    def _process_running(self):
+        """Checks if process is still running."""
+
+        # If no PID file, we assume the process is not running.
+        if not os.path.exists(self.pid_file):
+            return False
+
+        try:
+            # We take an ask-forgiveness-not-permission approach and rely
+            # on throwing to tell us something. If the pid file exists,
+            # delve into the process information and check if it matches
+            # our expected command line.
+            with open(self.pid_file, 'r') as f:
+                pid = f.readline().strip()
+                with open('/proc/%s/cmdline' % pid) as cmd_line_file:
+                    cmd_line = cmd_line_file.readline()
+                    if self.pid_path in cmd_line and 'pluto' in cmd_line:
+                        # Okay the process is probably a pluto process
+                        # and it contains the pid_path in the command
+                        # line... could be a race. Log to error and return
+                        # that it is *NOT* okay to clean up files. We are
+                        # logging to error instead of debug because it
+                        # indicates something bad has happened and this is
+                        # valuable information for figuring it out.
+                        LOG.error(_LE('Process %(pid)s exists with command '
+                                  'line %(cmd_line)s.') %
+                                  {'pid': pid, 'cmd_line': cmd_line})
+                        return True
+
+        except IOError as e:
+            # This is logged as "info" instead of error because it simply
+            # means that we couldn't find the files to check on them.
+            LOG.info(_LI('Unable to find control files on startup for '
+                         'router %(router)s: %(msg)s'),
+                     {'router': self.id, 'msg': e})
+        return False
+
+    def _cleanup_control_files(self):
+        try:
+            ctl_file = '%s.ctl' % self.pid_path
+            LOG.debug('Removing %(pidfile)s and %(ctlfile)s',
+                      {'pidfile': self.pid_file,
+                       'ctlfile': ctl_file})
+
+            if os.path.exists(self.pid_file):
+                os.remove(self.pid_file)
+
+            if os.path.exists(ctl_file):
+                os.remove(ctl_file)
+
+        except OSError as e:
+            LOG.error(_LE('Unable to remove pluto control '
+                          'files for router %(router)s. %(msg)s'),
+                      {'router': self.id, 'msg': e})
+
     def get_status(self):
         return self._execute([self.binary,
                               'whack',
@@ -366,7 +476,21 @@ class OpenSwanProcess(BaseSwanProcess):
 
     def restart(self):
         """Restart the process."""
+        # stop() followed immediately by a start() runs the risk that the
+        # current pluto daemon has not had a chance to shutdown. We check
+        # the current process information to see if the daemon is still
+        # running and if so, wait a short interval and retry.
         self.stop()
+        wait_interval = cfg.CONF.pluto.shutdown_check_timeout
+        for i in range(cfg.CONF.pluto.shutdown_check_retries):
+            if not self._process_running():
+                self._cleanup_control_files()
+                break
+            eventlet.sleep(wait_interval)
+            wait_interval *= cfg.CONF.pluto.shutdown_check_back_off
+        else:
+            LOG.warning(_LW('Server appears to still be running, restart '
+                            'of router %s may fail'), self.id)
         self.start()
         return
 
@@ -403,8 +527,9 @@ class OpenSwanProcess(BaseSwanProcess):
         that are allowed as subnet for the remote client.
         """
         virtual_privates = []
-        nets = [self.vpnservice['subnet']['cidr']]
+        nets = []
         for ipsec_site_conn in self.vpnservice['ipsec_site_connections']:
+            nets += ipsec_site_conn['local_cidrs']
             nets += ipsec_site_conn['peer_cidrs']
         for net in nets:
             version = netaddr.IPNetwork(net).version
@@ -419,6 +544,22 @@ class OpenSwanProcess(BaseSwanProcess):
         """
         if not self.namespace:
             return
+
+        # NOTE: The restart operation calls the parent's start() instead of
+        # this one to avoid having to special case the startup file check.
+        # If anything is added to this method that needs to run whenever
+        # a restart occurs, it should be either added to the restart()
+        # override or things refactored to special-case start() when
+        # called from restart().
+
+        # If, by any reason, ctl and pid  files weren't cleaned up, pluto
+        # won't be able to rewrite them and will fail to start. So we check
+        # to see if the process is running and if not, attempt a cleanup.
+        # In either case we fall through to allow the pluto process to
+        # start or fail in the usual way.
+        if not self._process_running():
+            self._cleanup_control_files()
+
         virtual_private = self._virtual_privates()
         #start pluto IKE keying daemon
         cmd = [self.binary,
@@ -432,10 +573,13 @@ class OpenSwanProcess(BaseSwanProcess):
                '--virtual_private', virtual_private]
 
         if self.conf.ipsec.enable_detailed_logging:
-            cmd += ['--perpeerlogbase', self.log_dir]
+            cmd += ['--perpeerlog', '--perpeerlogbase', self.log_dir]
         self._execute(cmd)
         #add connections
         for ipsec_site_conn in self.vpnservice['ipsec_site_connections']:
+            # Don't add a connection if its admin state is down
+            if not ipsec_site_conn['admin_state_up']:
+                continue
             nexthop = self._get_nexthop(ipsec_site_conn['peer_address'],
                                         ipsec_site_conn['id'])
             self._execute([self.binary,
@@ -455,7 +599,8 @@ class OpenSwanProcess(BaseSwanProcess):
                        ], check_exit_code=False)
 
         for ipsec_site_conn in self.vpnservice['ipsec_site_connections']:
-            if not ipsec_site_conn['initiator'] == 'start':
+            if (not ipsec_site_conn['initiator'] == 'start' or
+                    not ipsec_site_conn['admin_state_up']):
                 continue
             #initiate ipsec connection
             self._execute([self.binary,
@@ -522,9 +667,9 @@ class IPsecDriver(device_drivers.DeviceDriver):
     """VPN Device Driver for IPSec.
 
     This class is designed for use with L3-agent now.
-    However this driver will be used with another agent in future.
-    so the use of "Router" is kept minimul now.
-    Instead of router_id,  we are using process_id in this code.
+    However this driver will be used with another agent in future
+    so the use of "Router" is kept minimal now.
+    Instead of router_id, we are using process_id in this code.
     """
 
     # history
@@ -533,10 +678,10 @@ class IPsecDriver(device_drivers.DeviceDriver):
 
     def __init__(self, vpn_service, host):
         # TODO(pc_m) Replace vpn_service with config arg, once all driver
-        # implemenations no longer need vpn_service.
+        # implementations no longer need vpn_service.
         self.conf = vpn_service.conf
         self.host = host
-        self.conn = n_rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection()
         self.context = context.get_admin_context_without_session()
         self.topic = topics.IPSEC_AGENT_TOPIC
         node_topic = '%s.%s' % (self.topic, self.host)
@@ -599,7 +744,7 @@ class IPsecDriver(device_drivers.DeviceDriver):
         :param rule: a string of rule
         :param top: if top is true, the rule
             will be placed on the top of chain
-            Note if there is no rotuer, this method do nothing
+            Note if there is no router, this method does nothing
         """
         router = self.routers.get(router_id)
         if not router:
@@ -641,21 +786,20 @@ class IPsecDriver(device_drivers.DeviceDriver):
         :param vpnservice: vpnservices
         :param func: self.add_nat_rule or self.remove_nat_rule
         """
-        local_cidr = vpnservice['subnet']['cidr']
-        # This ipsec rule is not needed for ipv6.
-        if netaddr.IPNetwork(local_cidr).version == 6:
-            return
-
         router_id = vpnservice['router_id']
         for ipsec_site_connection in vpnservice['ipsec_site_connections']:
-            for peer_cidr in ipsec_site_connection['peer_cidrs']:
-                func(
-                    router_id,
-                    'POSTROUTING',
-                    '-s %s -d %s -m policy '
-                    '--dir out --pol ipsec '
-                    '-j ACCEPT ' % (local_cidr, peer_cidr),
-                    top=True)
+            for local_cidr in ipsec_site_connection['local_cidrs']:
+                # This ipsec rule is not needed for ipv6.
+                if netaddr.IPNetwork(local_cidr).version == 6:
+                    continue
+
+                for peer_cidr in ipsec_site_connection['peer_cidrs']:
+                    func(router_id,
+                         'POSTROUTING',
+                         '-s %s -d %s -m policy '
+                         '--dir out --pol ipsec '
+                         '-j ACCEPT ' % (local_cidr, peer_cidr),
+                         top=True)
         self.iptables_apply(router_id)
 
     def vpnservice_updated(self, context, **kwargs):
@@ -676,7 +820,7 @@ class IPsecDriver(device_drivers.DeviceDriver):
         """Ensuring process.
 
         If the process doesn't exist, it will create process
-        and store it in self.processs
+        and store it in self.process
         """
         process = self.processes.get(process_id)
         if not process or not process.namespace:
@@ -779,9 +923,16 @@ class IPsecDriver(device_drivers.DeviceDriver):
                         'updated_pending_status': True
                     }
 
+    def should_be_reported(self, context, process):
+        if (context.is_admin or
+            process.vpnservice["tenant_id"] == context.tenant_id):
+            return True
+
     def report_status(self, context):
         status_changed_vpn_services = []
         for process in self.processes.values():
+            if not self.should_be_reported(context, process):
+                continue
             previous_status = self.get_process_status_cache(process)
             if self.is_status_updated(process, previous_status):
                 new_status = self.copy_process_status(process)

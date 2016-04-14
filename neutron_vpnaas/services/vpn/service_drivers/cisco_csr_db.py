@@ -12,14 +12,14 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.common import exceptions
 from neutron.db import model_base
-from neutron.i18n import _LI
+from neutron_lib import exceptions as nexception
 from oslo_db import exception as db_exc
 from oslo_log import log as logging
 import sqlalchemy as sa
 from sqlalchemy.orm import exc as sql_exc
 
+from neutron_vpnaas._i18n import _, _LI
 from neutron_vpnaas.db.vpn import vpn_models
 
 LOG = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ MAPPING_LIMITS = {TUNNEL: (0, MAX_CSR_TUNNELS),
                   IPSEC_POLICY: (1, MAX_CSR_IPSEC_POLICIES)}
 
 
-class CsrInternalError(exceptions.NeutronException):
+class CsrInternalError(nexception.NeutronException):
     message = _("Fatal - %(reason)s")
 
 
@@ -103,7 +103,7 @@ def get_next_available_ipsec_policy_id(session):
 
 
 def find_conn_with_policy(policy_field, policy_id, conn_id, session):
-    """Return ID of another conneciton (if any) that uses same policy ID."""
+    """Return ID of another connection (if any) that uses same policy ID."""
     qry = session.query(vpn_models.IPsecSiteConnection.id)
     match = qry.filter_request(
         policy_field == policy_id,

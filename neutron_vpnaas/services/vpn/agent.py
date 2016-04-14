@@ -18,6 +18,7 @@ from neutron.agent.l3 import agent as l3_agent
 from neutron.agent import l3_agent as entry
 from oslo_config import cfg
 
+from neutron_vpnaas._i18n import _
 from neutron_vpnaas.services.vpn import vpn_service
 
 vpn_agent_opts = [
@@ -25,6 +26,18 @@ vpn_agent_opts = [
         'vpn_device_driver',
         default=['neutron_vpnaas.services.vpn.device_drivers.'
                  'ipsec.OpenSwanDriver'],
+        sample_default=['neutron_vpnaas.services.vpn.device_drivers.ipsec.'
+                       'OpenSwanDriver, '
+                       'neutron_vpnaas.services.vpn.device_drivers.'
+                       'cisco_ipsec.CiscoCsrIPsecDriver, '
+                       'neutron_vpnaas.services.vpn.device_drivers.'
+                       'vyatta_ipsec.VyattaIPSecDriver, '
+                       'neutron_vpnaas.services.vpn.device_drivers.'
+                       'strongswan_ipsec.StrongSwanDriver, '
+                       'neutron_vpnaas.services.vpn.device_drivers.'
+                       'fedora_strongswan_ipsec.FedoraStrongSwanDriver, '
+                       'neutron_vpnaas.services.vpn.device_drivers.'
+                       'libreswan_ipsec.LibreSwanDriver'],
         help=_("The vpn device drivers Neutron will use")),
 ]
 cfg.CONF.register_opts(vpn_agent_opts, 'vpnagent')

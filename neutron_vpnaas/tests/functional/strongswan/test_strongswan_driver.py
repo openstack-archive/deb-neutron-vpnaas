@@ -91,7 +91,6 @@ class TestStrongSwanDeviceDriver(base.BaseSudoTestCase):
     def setUp(self):
         super(TestStrongSwanDeviceDriver, self).setUp()
         self.conf = cfg.CONF
-        self.conf.use_namespaces = True
         self.conf.register_opts(l3_config.OPTS)
         self.conf.register_opts(ipsec.ipsec_opts, 'ipsec')
         self.conf.register_opts(strongswan_ipsec.strongswan_opts,
@@ -120,7 +119,6 @@ class TestStrongSwanDeviceDriver(base.BaseSudoTestCase):
             FAKE_VPN_SERVICE]
         self.addCleanup(self.driver.destroy_router, self.router_id)
 
-        self.conf.set_override('router_delete_namespaces', True)
         self.router.router_namespace.create()
         self.addCleanup(self.router.router_namespace.delete)
 

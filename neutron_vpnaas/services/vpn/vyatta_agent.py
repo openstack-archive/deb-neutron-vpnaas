@@ -17,12 +17,10 @@
 from networking_brocade.vyatta.common import l3_agent as vyatta_l3
 from neutron.agent import l3_agent as entry
 from oslo_config import cfg
-from oslo_log import log as logging
 
+from neutron_vpnaas._i18n import _
 from neutron_vpnaas.services.vpn import vyatta_vpn_service
 
-
-LOG = logging.getLogger(__name__)
 
 vpn_agent_opts = [
     cfg.MultiStrOpt(

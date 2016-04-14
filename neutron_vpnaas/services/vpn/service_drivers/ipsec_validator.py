@@ -12,16 +12,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-from neutron.common import exceptions
-from oslo_log import log as logging
+from neutron_lib import exceptions as nexception
 
+from neutron_vpnaas._i18n import _
 from neutron_vpnaas.db.vpn import vpn_validator
 
 
-LOG = logging.getLogger(__name__)
-
-
-class IpsecValidationFailure(exceptions.BadRequest):
+class IpsecValidationFailure(nexception.BadRequest):
     message = _("IPSec does not support %(resource)s attribute %(key)s "
                 "with value '%(value)s'")
 

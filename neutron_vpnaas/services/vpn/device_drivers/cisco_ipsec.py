@@ -15,18 +15,18 @@
 import collections
 import requests
 
-from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron import context as ctx
-from neutron.i18n import _LE, _LI, _LW
 from neutron.plugins.common import constants
 from neutron.plugins.common import utils as plugin_utils
+from neutron_lib import exceptions as nexception
 from oslo_concurrency import lockutils
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging
 from oslo_service import loopingcall
 
+from neutron_vpnaas._i18n import _, _LE, _LI, _LW
 from neutron_vpnaas.services.vpn.common import topics
 from neutron_vpnaas.services.vpn import device_drivers
 from neutron_vpnaas.services.vpn.device_drivers import (
@@ -46,21 +46,21 @@ RollbackStep = collections.namedtuple('RollbackStep',
                                       ['action', 'resource_id', 'title'])
 
 
-class CsrResourceCreateFailure(exceptions.NeutronException):
+class CsrResourceCreateFailure(nexception.NeutronException):
     message = _("Cisco CSR failed to create %(resource)s (%(which)s)")
 
 
-class CsrAdminStateChangeFailure(exceptions.NeutronException):
+class CsrAdminStateChangeFailure(nexception.NeutronException):
     message = _("Cisco CSR failed to change %(tunnel)s admin state to "
                 "%(state)s")
 
 
-class CsrDriverMismatchError(exceptions.NeutronException):
+class CsrDriverMismatchError(nexception.NeutronException):
     message = _("Required %(resource)s attribute %(attr)s mapping for Cisco "
                 "CSR is missing in device driver")
 
 
-class CsrUnknownMappingError(exceptions.NeutronException):
+class CsrUnknownMappingError(nexception.NeutronException):
     message = _("Device driver does not have a mapping of '%(value)s for "
                 "attribute %(attr)s of %(resource)s")
 
@@ -92,7 +92,7 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
 
     This class is designed for use with L3-agent now.
     However this driver will be used with another agent in future.
-    so the use of "Router" is kept minimul now.
+    so the use of "Router" is kept minimal now.
     Instead of router_id,  we are using process_id in this code.
     """
 
@@ -104,7 +104,7 @@ class CiscoCsrIPsecDriver(device_drivers.DeviceDriver):
         # TODO(pc_m): Once all driver implementations no longer need
         # vpn_service argument, replace with just config argument.
         self.host = host
-        self.conn = n_rpc.create_connection(new=True)
+        self.conn = n_rpc.create_connection()
         context = ctx.get_admin_context_without_session()
         node_topic = '%s.%s' % (topics.CISCO_IPSEC_AGENT_TOPIC, self.host)
 

@@ -20,9 +20,11 @@ import six
 from neutron.api import extensions
 from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
-from neutron.common import exceptions as nexception
-from neutron.plugins.common import constants
+from neutron.plugins.common import constants as nconstants
 from neutron.services import service_base
+from neutron_lib import exceptions as nexception
+
+from neutron_vpnaas._i18n import _
 
 
 class VPNServiceNotFound(nexception.NotFound):
@@ -64,6 +66,10 @@ class SubnetInUseByVPNService(nexception.InUse):
     message = _("Subnet %(subnet_id)s is used by VPNService %(vpnservice_id)s")
 
 
+class SubnetInUseByEndpointGroup(nexception.InUse):
+    message = _("Subnet %(subnet_id)s is used by endpoint group %(group_id)s")
+
+
 class VPNStateInvalidToUpdate(nexception.BadRequest):
     message = _("Invalid state %(state)s of vpnaas resource %(id)s"
                 " for updating")
@@ -95,6 +101,72 @@ class ExternalNetworkHasNoSubnet(nexception.BadRequest):
     message = _("Router's %(router_id)s external network has "
                 "no %(ip_version)s subnet")
 
+
+class VPNEndpointGroupNotFound(nexception.NotFound):
+    message = _("Endpoint group %(endpoint_group_id)s could not be found")
+
+
+class InvalidEndpointInEndpointGroup(nexception.InvalidInput):
+    message = _("Endpoint '%(endpoint)s' is invalid for group "
+                "type '%(group_type)s': %(why)s")
+
+
+class MissingEndpointForEndpointGroup(nexception.BadRequest):
+    message = _("No endpoints specified for endpoint group '%(group)s'")
+
+
+class NonExistingSubnetInEndpointGroup(nexception.InvalidInput):
+    message = _("Subnet %(subnet)s in endpoint group does not exist")
+
+
+class MixedIPVersionsForIPSecEndpoints(nexception.BadRequest):
+    message = _("Endpoints in group %(group)s do not have the same IP "
+                "version, as required for IPSec site-to-site connection")
+
+
+class MixedIPVersionsForPeerCidrs(nexception.BadRequest):
+    message = _("Peer CIDRs do not have the same IP version, as required "
+                "for IPSec site-to-site connection")
+
+
+class MixedIPVersionsForIPSecConnection(nexception.BadRequest):
+    message = _("IP versions are not compatible between peer and local "
+                "endpoints")
+
+
+class InvalidEndpointGroup(nexception.BadRequest):
+    message = _("Endpoint group%(suffix)s %(which)s cannot be specified, "
+                "when VPN Service has subnet specified")
+
+
+class WrongEndpointGroupType(nexception.BadRequest):
+    message = _("Endpoint group %(which)s type is '%(group_type)s' and "
+                "should be '%(expected)s'")
+
+
+class PeerCidrsInvalid(nexception.BadRequest):
+    message = _("Peer CIDRs cannot be specified, when using endpoint "
+                "groups")
+
+
+class MissingPeerCidrs(nexception.BadRequest):
+    message = _("Missing peer CIDRs for IPsec site-to-site connection")
+
+
+class MissingRequiredEndpointGroup(nexception.BadRequest):
+    message = _("Missing endpoint group%(suffix)s %(which)s for IPSec "
+                "site-to-site connection")
+
+
+class EndpointGroupInUse(nexception.BadRequest):
+    message = _("Endpoint group %(group_id)s is in use and cannot be deleted")
+
+
+def _validate_subnet_list_or_none(data, key_specs=None):
+    if data is not None:
+        attr._validate_subnet_list(data, key_specs)
+
+attr.validators['type:subnet_list_or_none'] = _validate_subnet_list_or_none
 
 vpn_supported_initiators = ['bi-directional', 'response-only']
 vpn_supported_encryption_algorithms = ['3des', 'aes-128',
@@ -133,8 +205,8 @@ RESOURCE_ATTRIBUTE_MAP = {
                         'validate': {'type:string': None},
                         'is_visible': True, 'default': ''},
         'subnet_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:uuid': None},
-                      'is_visible': True},
+                      'validate': {'type:uuid_or_none': None},
+                      'is_visible': True, 'default': None},
         'router_id': {'allow_post': True, 'allow_put': False,
                       'validate': {'type:uuid': None},
                       'is_visible': True},
@@ -173,8 +245,15 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'is_visible': True},
         'peer_cidrs': {'allow_post': True, 'allow_put': True,
                        'convert_to': attr.convert_to_list,
-                       'validate': {'type:subnet_list': None},
-                       'is_visible': True},
+                       'validate': {'type:subnet_list_or_none': None},
+                       'is_visible': True,
+                       'default': None},
+        'local_ep_group_id': {'allow_post': True, 'allow_put': True,
+                              'validate': {'type:uuid_or_none': None},
+                              'is_visible': True, 'default': None},
+        'peer_ep_group_id': {'allow_post': True, 'allow_put': True,
+                             'validate': {'type:uuid_or_none': None},
+                             'is_visible': True, 'default': None},
         'route_mode': {'allow_post': False, 'allow_put': False,
                        'default': 'static',
                        'is_visible': True},
@@ -343,7 +422,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                 'default': 'group5',
                 'validate': {'type:values': vpn_supported_pfs},
                 'is_visible': True}
-    }
+    },
 }
 
 
@@ -379,7 +458,7 @@ class Vpnaas(extensions.ExtensionDescriptor):
         attr.PLURALS.update(plural_mappings)
         return resource_helper.build_resource_info(plural_mappings,
                                                    RESOURCE_ATTRIBUTE_MAP,
-                                                   constants.VPN,
+                                                   nconstants.VPN,
                                                    register_quota=True,
                                                    translate_name=True)
 
@@ -402,10 +481,10 @@ class Vpnaas(extensions.ExtensionDescriptor):
 class VPNPluginBase(service_base.ServicePluginBase):
 
     def get_plugin_name(self):
-        return constants.VPN
+        return nconstants.VPN
 
     def get_plugin_type(self):
-        return constants.VPN
+        return nconstants.VPN
 
     def get_plugin_description(self):
         return 'VPN service plugin'

@@ -21,7 +21,6 @@ from networking_brocade.vyatta.common import vrouter_config
 from networking_brocade.vyatta.vpn import config as vyatta_vpn_config
 from neutron.common import rpc as n_rpc
 from neutron import context as n_ctx
-from neutron.i18n import _LE, _LW
 from oslo_config import cfg
 from oslo_log import log as logging
 import oslo_messaging as messaging
@@ -29,6 +28,7 @@ from oslo_service import loopingcall
 from oslo_service import periodic_task
 import six
 
+from neutron_vpnaas._i18n import _, _LE, _LW
 from neutron_vpnaas.services.vpn.common import topics
 from neutron_vpnaas.services.vpn import device_drivers
 
@@ -101,7 +101,7 @@ class VyattaIPSecDriver(device_drivers.DeviceDriver):
         self.host = host
 
         # register RPC endpoint
-        conn = n_rpc.create_connection(new=True)
+        conn = n_rpc.create_connection()
         node_topic = '%s.%s' % (topics.BROCADE_IPSEC_AGENT_TOPIC,
                                 self.host)
 
@@ -109,7 +109,7 @@ class VyattaIPSecDriver(device_drivers.DeviceDriver):
         conn.create_consumer(node_topic, endpoints, fanout=False)
         conn.consume_in_threads()
 
-        # initialize agent ot server RPC link
+        # initialize agent to server RPC link
         self.server_api = NeutronServerAPI(
             topics.BROCADE_IPSEC_DRIVER_TOPIC)
 
@@ -281,8 +281,8 @@ class _VyattaPeriodicTasks(periodic_task.PeriodicTasks):
             try:
                 ipsec_sa = vrouter.get_vpn_ipsec_sa()
             except v_exc.VRouterOperationError as e:
-                LOG.warn(_LW('Failed to fetch tunnel stats from router '
-                             '{0}: {1}').format(router_id, unicode(e)))
+                LOG.warning(_LW('Failed to fetch tunnel stats from router '
+                                '{0}: {1}').format(router_id, unicode(e)))
                 continue
 
             conn_ok = vyatta_vpn_config.parse_vpn_connections(
