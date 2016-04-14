@@ -1,9 +1,14 @@
-neutron-vpnaas (1:7.0.0-2) UNRELEASED; urgency=medium
+neutron-vpnaas (1:8.0.0-1) unstable; urgency=medium
 
+  [ Ondřej Nový ]
   * Fixed homepage (https).
   * Fixed VCS URLs (https).
 
- -- Ondřej Nový <novy@ondrej.org>  Sun, 28 Feb 2016 15:30:19 +0100
+  [ Thomas Goirand ]
+  * New upstream release.
+  * Fixed (build-)depends for this release.
+
+ -- Thomas Goirand <zigo@debian.org>  Thu, 14 Apr 2016 13:04:13 +0200
 
 neutron-vpnaas (1:7.0.0-1) unstable; urgency=medium
 
