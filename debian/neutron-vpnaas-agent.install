@@ -1,3 +1,1 @@
 etc/neutron/rootwrap.d/vpnaas.filters
-etc/neutron_vpnaas.conf		/etc/neutron
-etc/vpn_agent.ini		/etc/neutron

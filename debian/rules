@@ -10,7 +10,23 @@ PYTHONS:=$(shell pyversions -vr)
 %:
 	dh $@ --buildsystem=python_distutils --with python2,systemd
 
+override_dh_auto_install:
+	echo "Do nothing"
+
 override_dh_install:
+	python setup.py install --install-layout=deb --root $(CURDIR)/debian/tmp
+
+	mkdir -p $(CURDIR)/debian/neutron-vpnaas-agent/etc/neutron
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/neutron-vpnaas-agent/etc/neutron/vpn_agent.ini \
+		--wrap-width 140 \
+		--namespace neutron.vpnaas.agent
+
+	PYTHONPATH=$(CURDIR)/debian/tmp/usr/lib/python2.7/dist-packages oslo-config-generator \
+		--output-file $(CURDIR)/debian/neutron-vpnaas-agent/etc/neutron/neutron_vpnaas.conf \
+		--wrap-width 140 \
+		--namespace neutron.vpnaas
+
 	dh_install -O--buildsystem=python_distutils
 
 override_dh_auto_test:
