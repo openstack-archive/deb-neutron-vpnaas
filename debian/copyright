@@ -3,8 +3,20 @@ Upstream-Name: Neutron VPNaaS
 Source: git://github.com/openstack/neutron-vpnaas.git
 
 Files: *
-Copyright: (c) 2011-2012, OpenStack, LLC.
-           (c) 2013-2014, The OpenStack Foundation
+Copyright: (c) 2011-2016, The OpenStack Foundation
+           (c) 2013-2016, Hewlett-Packard Development Company, L.P.
+           (c) 2015, Canonical, Inc.
+           (c) 2014-2015, Cisco Systems, Inc.
+           (c) 2015, NEC Corporation
+           (c) 2015, Red Hat, Inc.
+           (c) 2013-2015, IBM, Inc.
+           (c) 2015, Oracle
+           (c) 2014, Samsung Electronics
+           (c) 2015, Brocade Communications System, Inc.
+           (c) 2013-2015, Nachi Ueno, NTT I3, Inc.
+           (c) 2015, Mirantis Inc.
+           (c) 2015, Awcloud Inc.
+           (c) 2010, US Government as represented by the Administrator of NASA
 License: Apache-2.0
 
 Files: debian/*
