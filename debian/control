@@ -122,3 +122,26 @@ Description: OpenStack virtual network service - VPNaaS agent
  network capabilities, including QoS, ACLs, and network monitoring.
  .
  This package provides the VPNaaS agent.
+
+Package: neutron-vpnaas-vyatta-agent
+Architecture: all
+Breaks: neutron-common (<< 2015.1.0),
+Replaces: neutron-common (<< 2015.1.0),
+Depends: adduser,
+         debconf,
+         lsb-base,
+         neutron-common,
+         neutron-vpnaas-common (= ${binary:Version}),
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends},
+Description: OpenStack virtual network service - VPNaaS Vyatta Agent
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package provides the VPNaaS Vyatta agent. The  Brocade Vyatta VPN plugin
+ provides VPNaaS solution using Brocade Vyatta vRouter VM running as a Neutron
+ router. The plugin implements IPSec Site-to-Site tunnel to connect tenant
+ private networks to remote networks using vRouter VM.

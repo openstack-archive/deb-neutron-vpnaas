@@ -5,6 +5,8 @@ neutron-vpnaas (1:8.0.0-2) unstable; urgency=medium
     (Closes: #828151).
   * Also packages /usr/bin/* files correctly (Closes: #828153).
   * Standards-Version is now 3.9.8 (no change).
+  * Added a neutron-vpnaas-vyatta-agent package to support the Brocade Vyatta
+    routers with VPN.
 
  -- Thomas Goirand <zigo@debian.org>  Mon, 27 Jun 2016 14:47:46 +0000
 
