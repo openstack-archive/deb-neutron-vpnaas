@@ -29,6 +29,9 @@ override_dh_install:
 	rm -r $(CURDIR)/debian/tmp/usr/etc
 
 	dh_install --fail-missing
+	mv $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/neutron-vpn-agent $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/python2-neutron-vpn-agent
+	mv $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/neutron-vpn-netns-wrapper $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/python2-neutron-vpn-netns-wrapper
+	mv $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/neutron-vyatta-agent $(CURDIR)/debian/python-neutron-vpnaas/usr/bin/python2-neutron-vyatta-agent
 
 override_dh_auto_test:
 ifeq (,$(findstring nocheck, $(DEB_BUILD_OPTIONS)))

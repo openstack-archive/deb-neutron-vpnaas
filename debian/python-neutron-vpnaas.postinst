@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "configure" ] ; then
+	update-alternatives --install /usr/bin/neutron-vpn-agent neutron-vpn-agent /usr/bin/python2-neutron-vpn-agent 300
+	update-alternatives --install /usr/bin/neutron-vpn-netns-wrapper neutron-vpn-netns-wrapper /usr/bin/python2-neutron-vpn-netns-wrapper 300
+	update-alternatives --install /usr/bin/neutron-vyatta-agent neutron-vyatta-agent /usr/bin/python2-neutron-vyatta-agent 300
+fi
+
+#DEBHELPER#
+
+exit 0

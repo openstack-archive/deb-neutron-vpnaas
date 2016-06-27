@@ -1,0 +1,13 @@
+#!/bin/sh
+
+set -e
+
+if [ "$1" = "remove" ] ; then
+	update-alternatives --remove neutron-vpn-agent /usr/bin/python2-neutron-vpn-agent
+	update-alternatives --remove neutron-vpn-netns-wrapper /usr/bin/python2-neutron-vpn-netns-wrapper
+	update-alternatives --remove neutron-vyatta-agent /usr/bin/python2-neutron-vyatta-agent
+fi
+
+#DEBHELPER#
+
+exit 0
