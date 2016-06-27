@@ -26,6 +26,8 @@ override_dh_install:
 		--wrap-width 140 \
 		--namespace neutron.vpnaas
 
+	rm -r $(CURDIR)/debian/tmp/usr/etc
+
 	dh_install --fail-missing
 
 override_dh_auto_test:
