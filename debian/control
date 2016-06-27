@@ -2,7 +2,7 @@ Source: neutron-vpnaas
 Section: net
 Priority: optional
 Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
-Uploaders: Thomas Goirand <zigo@debian.org>
+Uploaders: Thomas Goirand <zigo@debian.org>,
 Build-Depends: debhelper (>= 9),
                dh-python,
                dh-systemd,
@@ -52,8 +52,10 @@ Vcs-Git: https://anonscm.debian.org/git/openstack/neutron-vpnaas.git
 Package: python-neutron-vpnaas
 Architecture: all
 Section: python
-Breaks: python-neutron (<< 2015.1.0)
-Replaces: python-neutron (<< 2015.1.0)
+Breaks: neutron-vpnaas-agent (<< 1:8.0.0-2~),
+        python-neutron (<< 2015.1.0),
+Replaces: neutron-vpnaas-agent (<< 1:8.0.0-2~),
+          python-neutron (<< 2015.1.0),
 Depends: alembic (>= 0.8.0),
          python-jinja2 (>= 2.8),
          python-netaddr (>= 0.7.12),
@@ -73,8 +75,8 @@ Depends: alembic (>= 0.8.0),
          python-sqlalchemy (>= 1.0.12),
          ${misc:Depends},
          ${python:Depends},
-Recommends: iputils-arping
-Provides: ${python:Provides}
+Recommends: iputils-arping,
+Provides: ${python:Provides},
 Description: OpenStack virtual network service - Python library
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
@@ -83,17 +85,38 @@ Description: OpenStack virtual network service - Python library
  .
  This package provides the Python library.
 
+Package: neutron-vpnaas-common
+Architecture: all
+Breaks: neutron-vpnaas-agent (<< 1:8.0.0-2~),
+        python-neutron (<< 2015.1.0),
+Replaces: neutron-vpnaas-agent (<< 1:8.0.0-2~),
+          python-neutron (<< 2015.1.0),
+Depends: python-neutron-vpnaas (= ${binary:Version}),
+         ${misc:Depends},
+         ${python:Depends},
+         ${shlibs:Depends},
+         ${shlibs:Depends}
+         python-neutron-vpnaas (= ${binary:Version}),
+Description: OpenStack virtual network service - VPNaaS agent
+ Neutron provides an API to dynamically request and configure virtual networks.
+ These networks connect "interfaces" from other OpenStack services (such as
+ vNICs from Nova VMs). The Neutron API supports extensions to provide advanced
+ network capabilities, including QoS, ACLs, and network monitoring.
+ .
+ This package provides the VPNaaS agent.
+
 Package: neutron-vpnaas-agent
 Architecture: all
-Breaks: neutron-common (<< 2015.1.0)
-Replaces: neutron-common (<< 2015.1.0)
+Breaks: neutron-common (<< 2015.1.0),
+Replaces: neutron-common (<< 2015.1.0),
 Depends: adduser,
          debconf,
          lsb-base,
          neutron-common,
+         neutron-vpnaas-common (= ${binary:Version}),
          ${misc:Depends},
          ${python:Depends},
-         ${shlibs:Depends}
+         ${shlibs:Depends},
 Description: OpenStack virtual network service - VPNaaS agent
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
