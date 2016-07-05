@@ -1,3 +1,10 @@
+neutron-vpnaas (1:8.0.0-3) UNRELEASED; urgency=medium
+
+  * d/control: Move neutron-vpnaas-common package dependency
+     python-neutron-vpnaas to suggests field.
+
+ -- Ivan Udovichenko <iudovichenko@mirantis.com>  Tue, 05 Jul 2016 13:24:34 +0300
+
 neutron-vpnaas (1:8.0.0-2) unstable; urgency=medium
 
   * neutron-vpnaas-agent depends on neutron-vpnaas-common (new package), itself
