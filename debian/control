@@ -91,10 +91,10 @@ Breaks: neutron-vpnaas-agent (<< 1:8.0.0-2~),
         python-neutron (<< 2015.1.0),
 Replaces: neutron-vpnaas-agent (<< 1:8.0.0-2~),
           python-neutron (<< 2015.1.0),
-Depends: ${misc:Depends},
+Depends: python-neutron-vpnaas (= ${binary:Version}),
+         ${misc:Depends},
          ${python:Depends},
          ${shlibs:Depends},
-Suggest: python-neutron-vpnaas (= ${binary:Version}),
 Description: OpenStack virtual network service - VPNaaS common files
  Neutron provides an API to dynamically request and configure virtual networks.
  These networks connect "interfaces" from other OpenStack services (such as
