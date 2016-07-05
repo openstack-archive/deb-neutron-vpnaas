@@ -181,7 +181,7 @@ vpn_supported_lifetime_units = ['seconds']
 vpn_supported_pfs = ['group2', 'group5', 'group14']
 vpn_supported_ike_versions = ['v1', 'v2']
 vpn_supported_auth_mode = ['psk']
-vpn_supported_auth_algorithms = ['sha1']
+vpn_supported_auth_algorithms = ['sha1', 'sha256']
 vpn_supported_phase1_negotiation_mode = ['main']
 
 vpn_lifetime_limits = (60, attr.UNLIMITED)
@@ -199,10 +199,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'subnet_id': {'allow_post': True, 'allow_put': False,
                       'validate': {'type:uuid_or_none': None},
@@ -232,11 +232,14 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
+        'local_id': {'allow_post': True, 'allow_put': True,
+                    'validate': {'type:string': None},
+                    'is_visible': True, 'default': ''},
         'peer_address': {'allow_post': True, 'allow_put': True,
                          'validate': {'type:string': None},
                          'is_visible': True},
@@ -315,10 +318,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'transform_protocol': {
             'allow_post': True,
@@ -379,10 +382,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
-                 'validate': {'type:string': None},
+                 'validate': {'type:string': attr.NAME_MAX_LEN},
                  'is_visible': True, 'default': ''},
         'description': {'allow_post': True, 'allow_put': True,
-                        'validate': {'type:string': None},
+                        'validate': {'type:string': attr.DESCRIPTION_MAX_LEN},
                         'is_visible': True, 'default': ''},
         'auth_algorithm': {'allow_post': True, 'allow_put': True,
                            'default': 'sha1',

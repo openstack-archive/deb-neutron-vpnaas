@@ -43,7 +43,7 @@ class IPsecPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     transform_protocol = sa.Column(sa.Enum("esp", "ah", "ah-esp",
                                            name="ipsec_transform_protocols"),
                                    nullable=False)
-    auth_algorithm = sa.Column(sa.Enum("sha1",
+    auth_algorithm = sa.Column(sa.Enum("sha1", "sha256",
                                        name="vpn_auth_algorithms"),
                                nullable=False)
     encryption_algorithm = sa.Column(sa.Enum("3des", "aes-128",
@@ -66,7 +66,7 @@ class IKEPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
     __tablename__ = 'ikepolicies'
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     description = sa.Column(sa.String(attr.DESCRIPTION_MAX_LEN))
-    auth_algorithm = sa.Column(sa.Enum("sha1",
+    auth_algorithm = sa.Column(sa.Enum("sha1", "sha256",
                                        name="vpn_auth_algorithms"),
                                nullable=False)
     encryption_algorithm = sa.Column(sa.Enum("3des", "aes-128",
@@ -94,6 +94,7 @@ class IPsecSiteConnection(model_base.BASEV2,
     description = sa.Column(sa.String(attr.DESCRIPTION_MAX_LEN))
     peer_address = sa.Column(sa.String(255), nullable=False)
     peer_id = sa.Column(sa.String(255), nullable=False)
+    local_id = sa.Column(sa.String(255), nullable=True)
     route_mode = sa.Column(sa.String(8), nullable=False)
     mtu = sa.Column(sa.Integer, nullable=False)
     initiator = sa.Column(sa.Enum("bi-directional", "response-only",

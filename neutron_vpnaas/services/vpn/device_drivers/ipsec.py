@@ -14,6 +14,7 @@
 #    under the License.
 import abc
 import copy
+import filecmp
 import os
 import re
 import shutil
@@ -24,6 +25,7 @@ import eventlet
 import jinja2
 import netaddr
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import utils as agent_utils
 from neutron.api.v2 import attributes
 from neutron.common import rpc as n_rpc
 from neutron.common import utils as n_utils
@@ -94,7 +96,11 @@ pluto_opts = [
                  default=1.5,
                  help=_('A factor to increase the retry interval for '
                         'each retry'),
-                 deprecated_group='libreswan')
+                 deprecated_group='libreswan'),
+    cfg.BoolOpt('restart_check_config',
+                default=False,
+                help=_('Enable this flag to avoid from unnecessary restart'),
+                deprecated_group='libreswan')
 ]
 
 cfg.CONF.register_opts(pluto_opts, 'pluto')
@@ -142,6 +148,7 @@ class BaseSwanProcess(object):
         "aes-128": "aes128",
         "aes-256": "aes256",
         "aes-192": "aes192",
+        "sha256": "sha2_256",
         "group2": "modp1024",
         "group5": "modp1536",
         "group14": "modp2048",
@@ -160,6 +167,8 @@ class BaseSwanProcess(object):
     STATUS_NOT_RUNNING_RE = 'Command:.*ipsec.*status.*Exit code: [1|3]$'
     STATUS_IPSEC_SA_ESTABLISHED_RE = (
         '\d{3} #\d+: "([a-f0-9\-]+).*IPsec SA established.*')
+    STATUS_IPSEC_SA_ESTABLISHED_RE2 = (
+        '\d{3} #\d+: "([a-f0-9\-\/x]+).*IPsec SA established.*')
 
     def __init__(self, conf, process_id, vpnservice, namespace):
         self.conf = conf
@@ -177,6 +186,8 @@ class BaseSwanProcess(object):
             self.STATUS_NOT_RUNNING_RE)
         self.STATUS_IPSEC_SA_ESTABLISHED_PATTERN = re.compile(
             self.STATUS_IPSEC_SA_ESTABLISHED_RE)
+        self.STATUS_IPSEC_SA_ESTABLISHED_PATTERN2 = re.compile(
+            self.STATUS_IPSEC_SA_ESTABLISHED_RE2)
         self.STATUS_MAP = self.STATUS_DICT
 
     def translate_dialect(self):
@@ -190,6 +201,9 @@ class BaseSwanProcess(object):
                         'pfs']:
                 self._dialect(ipsec_site_conn['ikepolicy'], key)
                 self._dialect(ipsec_site_conn['ipsecpolicy'], key)
+            if (('local_id' not in ipsec_site_conn.keys()) or
+                (not ipsec_site_conn['local_id'])):
+                ipsec_site_conn['local_id'] = ipsec_site_conn['external_ip']
 
     def update_vpnservice(self, vpnservice):
         self.vpnservice = vpnservice
@@ -213,7 +227,8 @@ class BaseSwanProcess(object):
 
     def remove_config(self):
         """Remove whole config file."""
-        shutil.rmtree(self.config_dir, ignore_errors=True)
+        agent_utils.execute(
+            cmd=["rm", "-rf", self.config_dir], run_as_root=True)
 
     def _get_config_filename(self, kind):
         config_dir = self.etc_dir
@@ -412,6 +427,17 @@ class OpenSwanProcess(BaseSwanProcess):
             self.vpnservice,
             0o600)
 
+    def _copy_configs(self):
+        if not cfg.CONF.pluto.restart_check_config:
+            return
+        config_file_name = self._get_config_filename('ipsec.conf')
+        if os.path.isfile(config_file_name):
+            shutil.copyfile(config_file_name, config_file_name + '.old')
+        config_file_name = self._get_config_filename('ipsec.secrets')
+        if os.path.isfile(config_file_name):
+            shutil.copyfile(config_file_name, config_file_name + '.old')
+        os.chmod(config_file_name + '.old', 0o600)
+
     def _process_running(self):
         """Checks if process is still running."""
 
@@ -474,8 +500,32 @@ class OpenSwanProcess(BaseSwanProcess):
                               self.pid_path,
                               '--status'], extra_ok_codes=[1, 3])
 
+    def _config_changed(self):
+        secrets_file = os.path.join(
+            self.etc_dir, 'ipsec.secrets')
+        config_file = os.path.join(
+            self.etc_dir, 'ipsec.conf')
+
+        if not os.path.isfile(secrets_file + '.old'):
+            return True
+        if not os.path.isfile(config_file + '.old'):
+            return True
+
+        if not filecmp.cmp(secrets_file, secrets_file + '.old'):
+            return True
+        if not filecmp.cmp(config_file, config_file + '.old'):
+            return True
+
+        return False
+
     def restart(self):
         """Restart the process."""
+        should_be_restart = False
+        if self._config_changed() or not cfg.CONF.pluto.restart_check_config:
+            should_be_restart = True
+        if not should_be_restart:
+            return
+
         # stop() followed immediately by a start() runs the risk that the
         # current pluto daemon has not had a chance to shutdown. We check
         # the current process information to see if the daemon is still
@@ -610,17 +660,38 @@ class OpenSwanProcess(BaseSwanProcess):
                            '--asynchronous',
                            '--initiate'
                            ])
+        self._copy_configs()
+
+    def get_established_connections(self):
+        connections = []
+        status_output = self.get_status()
+
+        if not status_output:
+            return connections
+
+        for line in status_output.split('\n'):
+            if self.STATUS_NOT_RUNNING_PATTERN.search(line):
+                return connections
+            m = self.STATUS_IPSEC_SA_ESTABLISHED_PATTERN2.search(line)
+            if m:
+                connection = m.group(1)
+                if connection in connections:
+                    continue
+                connections.append(connection)
+        return connections
 
     def disconnect(self):
         if not self.namespace:
             return
         if not self.vpnservice:
             return
-        for conn_id in self.connection_status:
+
+        connections = self.get_established_connections()
+        for conn_name in connections:
             self._execute([self.binary,
                            'whack',
                            '--ctlbase', self.pid_path,
-                           '--name', '%s/0x1' % conn_id,
+                           '--name', '%s' % conn_name,
                            '--terminate'
                            ])
 

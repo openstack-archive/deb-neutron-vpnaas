@@ -43,14 +43,17 @@ FAKE_IKE_POLICY = {
     'ike_version': 'v1',
     'encryption_algorithm': 'aes-128',
     'auth_algorithm': 'sha1',
-    'pfs': 'group5'
+    'pfs': 'group5',
+    'lifetime_value': 3600
 }
 
 FAKE_IPSEC_POLICY = {
     'encryption_algorithm': 'aes-128',
     'auth_algorithm': 'sha1',
     'pfs': 'group5',
-    'transform_protocol': 'esp'
+    'transform_protocol': 'esp',
+    'lifetime_value': 3600,
+    'encapsulation_mode': 'tunnel'
 }
 
 FAKE_VPN_SERVICE = {
@@ -75,6 +78,9 @@ FAKE_VPN_SERVICE = {
          'initiator': 'bi-directional',
          'ikepolicy': FAKE_IKE_POLICY,
          'ipsecpolicy': FAKE_IPSEC_POLICY,
+         'dpd_action': 'hold',
+         'dpd_interval': 30,
+         'dpd_timeout': 120,
          'status': constants.PENDING_CREATE},
         {'peer_cidrs': ['40.0.0.0/24',
                         '50.0.0.0/24'],
@@ -90,6 +96,9 @@ FAKE_VPN_SERVICE = {
          'initiator': 'bi-directional',
          'ikepolicy': FAKE_IKE_POLICY,
          'ipsecpolicy': FAKE_IPSEC_POLICY,
+         'dpd_action': 'hold',
+         'dpd_interval': 30,
+         'dpd_timeout': 120,
          'status': constants.PENDING_CREATE}]
 }
 
@@ -106,11 +115,11 @@ OPENSWAN_CONNECTION_DETAILS = '''# rightsubnet=networkA/netmaskA, networkB/netma
     # [mtu]
     mtu=1500
     # [dpd_action]
-    dpdaction=
+    dpdaction=%(dpd_action)s
     # [dpd_interval]
-    dpddelay=
+    dpddelay=%(dpd_delay)s
     # [dpd_timeout]
-    dpdtimeout=
+    dpdtimeout=%(dpd_timeout)s
     # [auth_mode]
     authby=secret
     ######################
@@ -121,7 +130,7 @@ OPENSWAN_CONNECTION_DETAILS = '''# rightsubnet=networkA/netmaskA, networkB/netma
     # [encryption_algorithm]-[auth_algorithm]-[pfs]
     ike=aes128-sha1;modp1536
     # [lifetime_value]
-    ikelifetime=s
+    ikelifetime=%(ike_lifetime)ss
     # NOTE: it looks lifetime_units=kilobytes can't be enforced \
 (could be seconds,  hours,  days...)
     ##########################
@@ -130,9 +139,9 @@ OPENSWAN_CONNECTION_DETAILS = '''# rightsubnet=networkA/netmaskA, networkB/netma
     # [transform_protocol]
     auth=%(auth_mode)s
     # [encapsulation_mode]
-    type=
+    type=%(encapsulation_mode)s
     # [lifetime_value]
-    lifetime=s
+    lifetime=%(life_time)ss
     # lifebytes=100000 if lifetime_units=kilobytes (IKEv2 only)
 '''
 
@@ -203,6 +212,10 @@ conn %(conn1_id)s
     %(conn_details)s
 """
 
+STRONGSWAN_AUTH_ESP = 'esp=aes128-sha1-modp1536'
+
+STRONGSWAN_AUTH_AH = 'ah=sha1-modp1536'
+
 EXPECTED_IPSEC_OPENSWAN_SECRET_CONF = '''
 # Configuration for myvpn
 60.0.0.4 60.0.0.5 : PSK "password"
@@ -230,6 +243,14 @@ conn %(conn1_id)s
     rightsubnet=%(peer_cidrs1)s
     rightid=%(right1)s
     auto=route
+    dpdaction=%(dpd_action)s
+    dpddelay=%(dpd_delay)ss
+    dpdtimeout=%(dpd_timeout)ss
+    ike=%(ike_encryption_algorithm)s-%(ike_auth_algorithm)s-%(ike_pfs)s
+    ikelifetime=%(ike_lifetime)ss
+    %(auth_mode)s
+    lifetime=%(life_time)ss
+    type=%(encapsulation_mode)s
 
 conn %(conn2_id)s
     keyexchange=ikev1
@@ -241,6 +262,14 @@ conn %(conn2_id)s
     rightsubnet=%(peer_cidrs2)s
     rightid=%(right2)s
     auto=route
+    dpdaction=%(dpd_action)s
+    dpddelay=%(dpd_delay)ss
+    dpdtimeout=%(dpd_timeout)ss
+    ike=%(ike_encryption_algorithm)s-%(ike_auth_algorithm)s-%(ike_pfs)s
+    ikelifetime=%(ike_lifetime)ss
+    %(auth_mode)s
+    lifetime=%(life_time)ss
+    type=%(encapsulation_mode)s
 '''
 
 EXPECTED_STRONGSWAN_DEFAULT_CONF = '''
@@ -264,6 +293,12 @@ EXPECTED_IPSEC_STRONGSWAN_SECRET_CONF = '''
 PLUTO_ACTIVE_STATUS = """000 "%(conn_id)s/0x1": erouted;\n
 000 #4: "%(conn_id)s/0x1":500 STATE_QUICK_R2 (IPsec SA established);""" % {
     'conn_id': FAKE_IPSEC_SITE_CONNECTION2_ID}
+PLUTO_MULTIPLE_SUBNETS_ESTABLISHED_STATUS = """000 "%(conn_id1)s/1x1": erouted;\n
+000 #4: "%(conn_id1)s/1x1":500 STATE_QUICK_R2 (IPsec SA established);\n
+000 "%(conn_id2)s/2x1": erouted;\n
+000 #4: "%(conn_id2)s/2x1":500 STATE_QUICK_R2 (IPsec SA established);\n""" % {
+    'conn_id1': FAKE_IPSEC_SITE_CONNECTION1_ID,
+    'conn_id2': FAKE_IPSEC_SITE_CONNECTION2_ID}
 PLUTO_ACTIVE_NO_IPSEC_SA_STATUS = """000 "%(conn_id)s/0x1": erouted;\n
 000 #258: "%(conn_id)s/0x1":500 STATE_MAIN_R2 (sent MR2, expecting MI3);""" % {
     'conn_id': FAKE_IPSEC_SITE_CONNECTION2_ID}
@@ -351,6 +386,11 @@ class BaseIPsecDeviceDriver(base.BaseTestCase):
         if local_ip:
             for conn in self.vpnservice['ipsec_site_connections']:
                 conn['external_ip'] = local_ip
+
+        local_id = overrides.get('local_id')
+        if local_ip:
+            for conn in self.vpnservice['ipsec_site_connections']:
+                conn['local_id'] = local_id
 
     def check_config_file(self, expected, actual):
         expected = expected.strip()
@@ -754,6 +794,15 @@ class IPSecDeviceLegacy(BaseIPsecDeviceDriver):
         self.assertEqual(constants.ACTIVE,
                          ipsec_site_conn[connection_id]['status'])
 
+    def _test_connection_names_handling_for_multiple_subnets(self,
+                                                             active_status):
+        """Test connection names handling for multiple subnets."""
+        router_id = self.router.router_id
+        process = self.driver.ensure_process(router_id, self.vpnservice)
+        self._execute.return_value = active_status
+        names = process.get_established_connections()
+        self.assertEqual(2, len(names))
+
     def _test_status_handling_for_deleted_connection(self,
                                                      not_running_status):
         """Test status handling for deleted connection."""
@@ -901,7 +950,13 @@ class TestOpenSwanConfigGeneration(BaseIPsecDeviceDriver):
     def build_ipsec_expected_config_for_test(self, info):
         """Modify OpenSwan ipsec expected config files for test variations."""
         auth_mode = info.get('ipsec_auth', AUTH_ESP)
-        conn_details = OPENSWAN_CONNECTION_DETAILS % {'auth_mode': auth_mode}
+        conn_details = OPENSWAN_CONNECTION_DETAILS % {'auth_mode': auth_mode,
+                'dpd_action': 'hold',
+                'dpd_delay': 30,
+                'dpd_timeout': 120,
+                'ike_lifetime': 3600,
+                'life_time': 3600,
+                'encapsulation_mode': 'tunnel'}
         # Convert local CIDRs into assignment strings. IF more than one,
         # pluralize the attribute name and enclose in brackets.
         cidrs = info.get('local_cidrs', [['10.0.0.0/24'], ['11.0.0.0/24']])
@@ -962,7 +1017,8 @@ class TestOpenSwanConfigGeneration(BaseIPsecDeviceDriver):
                      'peer_cidrs': [['2002:1400::/48', '2002:1e00::/48'],
                                     ['2002:2800::/48', '2002:3200::/48']],
                      'local': '2002:3c00:0004::',
-                     'peers': ['2002:3c00:0005::', '2002:3c00:0006::']}
+                     'peers': ['2002:3c00:0005::', '2002:3c00:0006::'],
+                     'local_id': '2002:3c00:0004::'}
         self.modify_config_for_test(overrides)
         self.process.update_vpnservice(self.vpnservice)
         self._test_ipsec_connection_config(overrides)
@@ -997,23 +1053,42 @@ class IPsecStrongswanConfigGeneration(BaseIPsecDeviceDriver):
         peer_cidrs = [','.join(cidr) for cidr in cidrs]
         local_ip = info.get('local', '60.0.0.4')
         peer_ips = info.get('peers', ['60.0.0.5', '60.0.0.6'])
+        auth_mode = info.get('ipsec_auth', STRONGSWAN_AUTH_ESP)
         return EXPECTED_IPSEC_STRONGSWAN_CONF % {
             'local_cidrs1': local_cidrs[0], 'local_cidrs2': local_cidrs[1],
             'peer_cidrs1': peer_cidrs[0], 'peer_cidrs2': peer_cidrs[1],
             'left': local_ip,
             'right1': peer_ips[0], 'right2': peer_ips[1],
+            'dpd_action': 'hold',
+            'dpd_delay': 30,
+            'dpd_timeout': 120,
+            'ike_encryption_algorithm': 'aes128',
+            'ike_auth_algorithm': 'sha1',
+            'ike_pfs': 'modp1536',
+            'ike_lifetime': 3600,
+            'life_time': 3600,
+            'auth_mode': auth_mode,
+            'encapsulation_mode': 'tunnel',
             'conn1_id': FAKE_IPSEC_SITE_CONNECTION1_ID,
             'conn2_id': FAKE_IPSEC_SITE_CONNECTION2_ID}
 
-    def test_ipsec_config_file(self):
+    def test_ipsec_config_file_with_esp(self):
         self._test_ipsec_connection_config({})
+
+    def test_ipsec_config_file_with_ah(self):
+        overrides = {'ipsec_auth': 'ah'}
+        self.modify_config_for_test(overrides)
+        self.process.update_vpnservice(self.vpnservice)
+        info = {'ipsec_auth': STRONGSWAN_AUTH_AH}
+        self._test_ipsec_connection_config(info)
 
     def test_ipsec_config_file_for_v6(self):
         overrides = {'local_cidrs': [['2002:0a00::/48'], ['2002:0b00::/48']],
                      'peer_cidrs': [['2002:1400::/48', '2002:1e00::/48'],
                                     ['2002:2800::/48', '2002:3200::/48']],
                      'local': '2002:3c00:0004::',
-                     'peers': ['2002:3c00:0005::', '2002:3c00:0006::']}
+                     'peers': ['2002:3c00:0005::', '2002:3c00:0006::'],
+                     'local_id': '2002:3c00:0004::'}
         self.modify_config_for_test(overrides)
         self.process.update_vpnservice(self.vpnservice)
         self._test_ipsec_connection_config(overrides)
@@ -1306,6 +1381,11 @@ class TestOpenSwanProcess(IPSecDeviceLegacy):
     def test_status_handling_for_deleted_connection(self):
         """Test status handling for deleted connection."""
         self._test_status_handling_for_deleted_connection(NOT_RUNNING_STATUS)
+
+    def test_connection_names_handling_for_multiple_subnets(self):
+        """Test connection names handling for multiple subnets."""
+        self._test_connection_names_handling_for_multiple_subnets(
+            PLUTO_MULTIPLE_SUBNETS_ESTABLISHED_STATUS)
 
     def test_parse_connection_status(self):
         """Test the status of ipsec-site-connection parsed correctly."""
