@@ -1,4 +1,4 @@
-neutron-vpnaas (2:9.0.0~b1) UNRELEASED; urgency=medium
+neutron-vpnaas (2:9.0.0~b1-1) UNRELEASED; urgency=medium
 
   * Fix (build-)dependencies.
   * Raise epoch to stay in sync with Ubuntu.
