@@ -1,0 +1,9 @@
+Code-Review+2: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+2: Kyle Mestery <mestery@mestery.com>
+Workflow+1: Kyle Mestery <mestery@mestery.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 21 Jul 2016 19:05:49 +0000
+Reviewed-on: https://review.openstack.org/342335
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
