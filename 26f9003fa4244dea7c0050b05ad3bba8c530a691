@@ -1,0 +1,9 @@
+Code-Review+2: Doug Wiegley <dougwig@parkside.io>
+Code-Review+2: Ryan Moats <rmoats@us.ibm.com>
+Workflow+1: Ryan Moats <rmoats@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 27 Aug 2016 00:42:29 +0000
+Reviewed-on: https://review.openstack.org/361497
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master

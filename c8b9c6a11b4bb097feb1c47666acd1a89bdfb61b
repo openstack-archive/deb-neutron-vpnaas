@@ -1,0 +1,9 @@
+Code-Review+2: Paul Michali <pc@michali.net>
+Code-Review+2: Ryan Moats <rmoats@us.ibm.com>
+Workflow+1: Ryan Moats <rmoats@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 25 Aug 2016 14:14:09 +0000
+Reviewed-on: https://review.openstack.org/359062
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master

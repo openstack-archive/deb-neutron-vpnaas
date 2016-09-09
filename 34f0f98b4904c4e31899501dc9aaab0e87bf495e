@@ -1,0 +1,11 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+1: vikram.choudhary <vikram.choudhary@huawei.com>
+Code-Review+1: Andrey Pavlov <andrey.mp@gmail.com>
+Code-Review+2: Ryan Moats <rmoats@us.ibm.com>
+Workflow+1: Ryan Moats <rmoats@us.ibm.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 20 Aug 2016 17:14:51 +0000
+Reviewed-on: https://review.openstack.org/357610
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
