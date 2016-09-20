@@ -1,4 +1,5 @@
 [gerrit]
 host=review.openstack.org
 port=29418
-project=openstack/neutron-vpnaas.git
+project=openstack/deb-neutron-vpnaas.git
+defaultbranch=debian/newton

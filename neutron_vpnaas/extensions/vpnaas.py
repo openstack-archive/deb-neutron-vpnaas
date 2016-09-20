@@ -22,6 +22,8 @@ from neutron.api.v2 import attributes as attr
 from neutron.api.v2 import resource_helper
 from neutron.plugins.common import constants as nconstants
 from neutron.services import service_base
+from neutron_lib.api import converters
+from neutron_lib.api import validators as validators
 from neutron_lib import exceptions as nexception
 
 from neutron_vpnaas._i18n import _
@@ -164,9 +166,10 @@ class EndpointGroupInUse(nexception.BadRequest):
 
 def _validate_subnet_list_or_none(data, key_specs=None):
     if data is not None:
-        attr._validate_subnet_list(data, key_specs)
+        validators.validate_subnet_list(data, key_specs)
 
-attr.validators['type:subnet_list_or_none'] = _validate_subnet_list_or_none
+validators.add_validator('type:subnet_list_or_none',
+                        _validate_subnet_list_or_none)
 
 vpn_supported_initiators = ['bi-directional', 'response-only']
 vpn_supported_encryption_algorithms = ['3des', 'aes-128',
@@ -184,8 +187,8 @@ vpn_supported_auth_mode = ['psk']
 vpn_supported_auth_algorithms = ['sha1', 'sha256']
 vpn_supported_phase1_negotiation_mode = ['main']
 
-vpn_lifetime_limits = (60, attr.UNLIMITED)
-positive_int = (0, attr.UNLIMITED)
+vpn_lifetime_limits = (60, validators.UNLIMITED)
+positive_int = (0, validators.UNLIMITED)
 
 RESOURCE_ATTRIBUTE_MAP = {
 
@@ -195,7 +198,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
@@ -212,7 +215,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'is_visible': True},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'external_v4_ip': {'allow_post': False, 'allow_put': False,
                         'is_visible': True},
@@ -228,7 +231,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
@@ -247,7 +250,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                     'validate': {'type:string': None},
                     'is_visible': True},
         'peer_cidrs': {'allow_post': True, 'allow_put': True,
-                       'convert_to': attr.convert_to_list,
+                       'convert_to': converters.convert_to_list,
                        'validate': {'type:subnet_list_or_none': None},
                        'is_visible': True,
                        'default': None},
@@ -263,7 +266,7 @@ RESOURCE_ATTRIBUTE_MAP = {
         'mtu': {'allow_post': True, 'allow_put': True,
                 'default': '1500',
                 'validate': {'type:range': positive_int},
-                'convert_to': attr.convert_to_int,
+                'convert_to': converters.convert_to_int,
                 'is_visible': True},
         'initiator': {'allow_post': True, 'allow_put': True,
                       'default': 'bi-directional',
@@ -277,12 +280,12 @@ RESOURCE_ATTRIBUTE_MAP = {
                 'validate': {'type:string': None},
                 'is_visible': True},
         'dpd': {'allow_post': True, 'allow_put': True,
-                'convert_to': attr.convert_none_to_empty_dict,
+                'convert_to': converters.convert_none_to_empty_dict,
                 'is_visible': True,
                 'default': {},
                 'validate': {
                     'type:dict_or_empty': {
-                        'actions': {
+                        'action': {
                             'type:values': vpn_dpd_supported_actions,
                         },
                         'interval': {
@@ -293,7 +296,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                         }}}},
         'admin_state_up': {'allow_post': True, 'allow_put': True,
                            'default': True,
-                           'convert_to': attr.convert_to_boolean,
+                           'convert_to': converters.convert_to_boolean,
                            'is_visible': True},
         'status': {'allow_post': False, 'allow_put': False,
                    'is_visible': True},
@@ -314,7 +317,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
@@ -355,7 +358,7 @@ RESOURCE_ATTRIBUTE_MAP = {
             },
             'is_visible': True},
         'lifetime': {'allow_post': True, 'allow_put': True,
-                     'convert_to': attr.convert_none_to_empty_dict,
+                     'convert_to': converters.convert_none_to_empty_dict,
                      'default': {},
                      'validate': {
                          'type:dict_or_empty': {
@@ -378,7 +381,7 @@ RESOURCE_ATTRIBUTE_MAP = {
                'is_visible': True,
                'primary_key': True},
         'tenant_id': {'allow_post': True, 'allow_put': False,
-                      'validate': {'type:string': None},
+                      'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'required_by_policy': True,
                       'is_visible': True},
         'name': {'allow_post': True, 'allow_put': True,
@@ -405,7 +408,7 @@ RESOURCE_ATTRIBUTE_MAP = {
             },
             'is_visible': True},
         'lifetime': {'allow_post': True, 'allow_put': True,
-                     'convert_to': attr.convert_none_to_empty_dict,
+                     'convert_to': converters.convert_none_to_empty_dict,
                      'default': {},
                      'validate': {
                          'type:dict_or_empty': {

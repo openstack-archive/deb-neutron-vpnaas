@@ -13,32 +13,41 @@
 # default:
 # pip install {opts} {packages}
 
-set -x
-
 ZUUL_CLONER=/usr/zuul-env/bin/zuul-cloner
+BRANCH_NAME=master
 neutron_installed=$(echo "import neutron" | python 2>/dev/null ; echo $?)
 NEUTRON_DIR=$HOME/neutron
-BRANCH_NAME=master
 
 set -e
+set -x
 
-install_cmd="pip install"
-if [ "$1" = "constrained" ]; then
-    install_cmd="$install_cmd $2"
-    shift
-fi
+install_cmd="pip install -c$1"
 shift
 
+# The devstack based functional tests have neutron checked out in
+# $NEUTRON_DIR on the test systems - with the change to test in it.
+# Use this directory if it exists, so that this script installs the
+# neutron version to test here.
+# Note that the functional tests use sudo to run tox and thus
+# variables used for zuul-cloner to check out the correct version are
+# lost.
 if [ -d "$NEUTRON_DIR" ]; then
     echo "FOUND Neutron code at $NEUTRON_DIR - using"
     $install_cmd -U -e $NEUTRON_DIR
 elif [ $neutron_installed -eq 0 ]; then
+    echo "ALREADY INSTALLED" > /tmp/tox_install.txt
     location=$(python -c "import neutron; print(neutron.__file__)")
     echo "ALREADY INSTALLED at $location"
+
+    echo "Neutron already installed; using existing package"
 elif [ -x "$ZUUL_CLONER" ]; then
-    echo "USING ZUUL CLONER to obtain Neutron code"
-    cwd=$(/bin/pwd)
-    cd /tmp
+    echo "ZUUL CLONER" > /tmp/tox_install.txt
+    # Make this relative to current working directory so that
+    # git clean can remove it. We cannot remove the directory directly
+    # since it is referenced after $install_cmd -e.
+    mkdir -p .tmp
+    NEUTRON_DIR=$(/bin/mktemp -d -p $(pwd)/.tmp)
+    pushd $NEUTRON_DIR
     $ZUUL_CLONER --cache-dir \
         /opt/git \
         --branch $BRANCH_NAME \
@@ -46,10 +55,13 @@ elif [ -x "$ZUUL_CLONER" ]; then
         openstack/neutron
     cd openstack/neutron
     $install_cmd -e .
-    cd "$cwd"
+    popd
 else
-    echo "LOCAL - Obtaining Neutron code from git.openstack.org"
-    $install_cmd -U -egit+https://git.openstack.org/openstack/neutron@$BRANCH_NAME#egg=neutron
+    echo "PIP HARDCODE" > /tmp/tox_install.txt
+    if [ -z "$NEUTRON_PIP_LOCATION" ]; then
+        NEUTRON_PIP_LOCATION="git+https://git.openstack.org/openstack/neutron@$BRANCH_NAME#egg=neutron"
+    fi
+    $install_cmd -U -e ${NEUTRON_PIP_LOCATION}
 fi
 
 $install_cmd -U $*

@@ -13,13 +13,13 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import sqlalchemy as sa
+from sqlalchemy import orm
+
 from neutron.api.v2 import attributes as attr
 from neutron.db import l3_db
 from neutron.db import model_base
 from neutron.db import models_v2
-
-import sqlalchemy as sa
-from sqlalchemy import orm
 
 from neutron_vpnaas.services.vpn.common import constants
 
@@ -35,7 +35,7 @@ class IPsecPeerCidr(model_base.BASEV2):
         primary_key=True)
 
 
-class IPsecPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class IPsecPolicy(model_base.BASEV2, model_base.HasId, model_base.HasProject):
     """Represents a v2 IPsecPolicy Object."""
     __tablename__ = 'ipsecpolicies'
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
@@ -61,7 +61,7 @@ class IPsecPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
                             name="vpn_pfs"), nullable=False)
 
 
-class IKEPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class IKEPolicy(model_base.BASEV2, model_base.HasId, model_base.HasProject):
     """Represents a v2 IKEPolicy Object."""
     __tablename__ = 'ikepolicies'
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
@@ -86,8 +86,8 @@ class IKEPolicy(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
                             name="vpn_pfs"), nullable=False)
 
 
-class IPsecSiteConnection(model_base.BASEV2,
-                          models_v2.HasId, models_v2.HasTenant):
+class IPsecSiteConnection(model_base.BASEV2, model_base.HasId,
+                          model_base.HasProject):
     """Represents a IPsecSiteConnection Object."""
     __tablename__ = 'ipsec_site_connections'
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
@@ -135,7 +135,7 @@ class IPsecSiteConnection(model_base.BASEV2,
                                      foreign_keys=peer_ep_group_id)
 
 
-class VPNService(model_base.BASEV2, models_v2.HasId, models_v2.HasTenant):
+class VPNService(model_base.BASEV2, model_base.HasId, model_base.HasProject):
     """Represents a v2 VPNService Object."""
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
     description = sa.Column(sa.String(attr.DESCRIPTION_MAX_LEN))
@@ -169,8 +169,8 @@ class VPNEndpoint(model_base.BASEV2):
                                   primary_key=True)
 
 
-class VPNEndpointGroup(model_base.BASEV2, models_v2.HasId,
-                       models_v2.HasTenant):
+class VPNEndpointGroup(model_base.BASEV2, model_base.HasId,
+                       model_base.HasProject):
     """Collection of endpoints of a specific type, for VPN connections."""
     __tablename__ = 'vpn_endpoint_groups'
     name = sa.Column(sa.String(attr.NAME_MAX_LEN))
