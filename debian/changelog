@@ -4,6 +4,7 @@ neutron-vpnaas (2:9.0.0~rc1-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Using OpenStack's Gerrit as VCS URLs.
   * d/control: Use correct branch in Vcs-* fields.
+  * Fixed oslotest EPOCH.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 20 Sep 2016 15:25:19 +0200
 
