@@ -1,6 +1,7 @@
-neutron-vpnaas (2:9.0.0~rc1-1) experimental; urgency=medium
+neutron-vpnaas (2:9.0.0~rc1-1) unstable; urgency=medium
 
   * New upstream release.
+  * Uploading to unstable.
   * Fixed (build-)depends for this release.
   * Using OpenStack's Gerrit as VCS URLs.
   * d/control: Use correct branch in Vcs-* fields.
