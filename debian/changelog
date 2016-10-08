@@ -1,3 +1,10 @@
+neutron-vpnaas (2:9.0.0-2) unstable; urgency=medium
+
+  * Fixed init script to correctly load /etc/neutron/vpn_agent.ini
+    (Closes: #828153).
+
+ -- Thomas Goirand <zigo@debian.org>  Sat, 08 Oct 2016 17:54:05 +0200
+
 neutron-vpnaas (2:9.0.0-1) unstable; urgency=medium
 
   * New upstream release.
