@@ -1,0 +1,10 @@
+Code-Review+2: Paul Michali <pc@michali.net>
+Code-Review+2: Al Miller <al.miller@ajmiller.net>
+Workflow+1: Al Miller <al.miller@ajmiller.net>
+Code-Review+1: Andreas Jaeger <jaegerandi@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 04 Nov 2016 11:26:43 +0000
+Reviewed-on: https://review.openstack.org/392751
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
