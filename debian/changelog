@@ -1,3 +1,9 @@
+neutron-vpnaas (2:9.0.0-3) UNRELEASED; urgency=medium
+
+  * Bumped debhelper compat version to 10
+
+ -- Ondřej Nový <onovy@debian.org>  Thu, 24 Nov 2016 00:02:23 +0100
+
 neutron-vpnaas (2:9.0.0-2) unstable; urgency=medium
 
   * Fixed init script to correctly load /etc/neutron/vpn_agent.ini
