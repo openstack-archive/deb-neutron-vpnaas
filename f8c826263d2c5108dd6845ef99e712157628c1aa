@@ -1,0 +1,11 @@
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Code-Review+1: Akihiro Motoki <amotoki@gmail.com>
+Code-Review+1: Nate Johnston <openstacknate@gmail.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 12 Jan 2017 16:36:21 +0000
+Reviewed-on: https://review.openstack.org/419396
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
