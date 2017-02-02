@@ -1,0 +1,9 @@
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Tue, 31 Jan 2017 22:47:03 +0000
+Reviewed-on: https://review.openstack.org/353838
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
