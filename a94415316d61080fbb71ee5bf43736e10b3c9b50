@@ -1,0 +1,9 @@
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Sat, 18 Feb 2017 01:50:54 +0000
+Reviewed-on: https://review.openstack.org/419813
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/stable/newton
