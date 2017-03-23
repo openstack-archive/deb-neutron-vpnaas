@@ -1,0 +1,10 @@
+Code-Review+1: Sayantani Goswami <sayantani.goswami@intel.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 17 Mar 2017 23:42:01 +0000
+Reviewed-on: https://review.openstack.org/443844
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/stable/ocata
