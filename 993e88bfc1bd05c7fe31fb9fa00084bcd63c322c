@@ -1,0 +1,11 @@
+Code-Review+1: Jens Rosenboom <j.rosenboom@x-ion.de>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Code-Review+2: Ihar Hrachyshka <ihrachys@redhat.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Thu, 02 Mar 2017 16:12:57 +0000
+Reviewed-on: https://review.openstack.org/440262
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
