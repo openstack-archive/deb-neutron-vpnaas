@@ -1,0 +1,9 @@
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 07 Apr 2017 13:27:02 +0000
+Reviewed-on: https://review.openstack.org/427523
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
