@@ -1,0 +1,10 @@
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 17 May 2017 07:25:32 +0000
+Reviewed-on: https://review.openstack.org/458359
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/stable/ocata
