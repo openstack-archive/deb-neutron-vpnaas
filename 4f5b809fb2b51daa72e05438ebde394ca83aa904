@@ -1,0 +1,11 @@
+Code-Review+1: fumihiko kakuma <kakuma@valinux.co.jp>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Code-Review+2: Armando Migliaccio <armamig@gmail.com>
+Workflow+1: Armando Migliaccio <armamig@gmail.com>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Wed, 24 May 2017 18:02:05 +0000
+Reviewed-on: https://review.openstack.org/459167
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/stable/newton
