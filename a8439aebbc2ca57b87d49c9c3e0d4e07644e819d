@@ -1,0 +1,10 @@
+Code-Review+1: Lingxian Kong <anlin.kong@gmail.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Fri, 30 Jun 2017 11:20:21 +0000
+Reviewed-on: https://review.openstack.org/472522
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
