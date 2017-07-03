@@ -1,0 +1,11 @@
+Code-Review+1: Erik Olof Gunnar Andersson <eandersson@blizzard.com>
+Code-Review+2: YAMAMOTO Takashi <yamamoto@midokura.com>
+Code-Review+1: Cao Xuan Hoang <hoangcx@vn.fujitsu.com>
+Code-Review+2: Kevin Benton <kevin@benton.pub>
+Workflow+1: Kevin Benton <kevin@benton.pub>
+Verified+2: Jenkins
+Submitted-by: Jenkins
+Submitted-at: Mon, 03 Jul 2017 15:17:44 +0000
+Reviewed-on: https://review.openstack.org/470118
+Project: openstack/deb-neutron-vpnaas
+Branch: refs/heads/master
