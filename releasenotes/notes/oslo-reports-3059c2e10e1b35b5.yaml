@@ -1,6 +1,0 @@
----
-prelude: >
-    Neutron VPNaaS is integrated with Guru Meditation Reports library.
-features:
-  - Neutron VPNaaS services should respond to SIGUSR2 signal by dumping
-    valuable debug information to standard error output.
